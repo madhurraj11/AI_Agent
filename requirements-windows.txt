@@ -2,3 +2,4 @@
 Flask>=3.0,<4.0
 databricks-connect==15.4.*
 PyInstaller>=6.0,<7.0
+pyspark

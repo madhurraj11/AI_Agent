@@ -1,0 +1,4 @@
+# Build with Python 3.11 to match Databricks Connect 15.4 serverless support.
+Flask>=3.0,<4.0
+databricks-connect==15.4.*
+PyInstaller>=6.0,<7.0

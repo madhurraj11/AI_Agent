@@ -1,0 +1,3 @@
+.venv-windows-build/
+build/
+dist/

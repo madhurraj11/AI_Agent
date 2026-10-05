@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#172c34" />
+    <title>LakeLoom</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-brand-row">
+          <a class="brand" href="#overview" data-go-view="overview" aria-label="LakeLoom home" title="LakeLoom workspace">
+            <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+              <rect width="36" height="36" rx="10" fill="#28493f" />
+              <path d="M8 12h5c5 0 5 6 10 6h5" fill="none" stroke="#d7f596" stroke-width="2.2" stroke-linecap="round" />
+              <path d="M8 19h3c5 0 5 6 10 6h7" fill="none" stroke="#a9d89b" stroke-width="2.2" stroke-linecap="round" />
+              <circle cx="28" cy="11" r="2" fill="#71c895" />
+            </svg>
+            <span class="brand-name">lake<span class="brand-accent">loom</span><span class="brand-period">.</span></span>
+          </a>
+          <button id="toggleSidebar" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
+            <svg class="sidebar-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <path class="sidebar-toggle-menu" d="M4 5h12M4 10h12M4 15h12" />
+              <path class="sidebar-toggle-chevron" d="m12 4-6 6 6 6" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="workspace-switcher">
+          <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><path d="M4 10h5c5 0 5 6 10 6h9" /><path d="M4 18h4c5 0 5 6 10 6h10" /><circle cx="26" cy="7" r="2" /></svg></span>
+          <span class="workspace-copy"><strong>LakeLoom workspace</strong><small id="workspaceSessionStatus">Local preview · checking SSO</small></span>
+          <span class="chevron">⌄</span>
+        </div>
+
+        <div class="side-label">WORKSPACE</div>
+        <nav class="side-nav" aria-label="Main navigation">
+          <a href="#overview" class="nav-item" data-view="overview" aria-label="Overview"><span class="nav-icon">▦</span><span class="nav-label">Overview</span></a>
+          <a href="#builder" class="nav-item active" data-view="builder" aria-label="Notebook builder"><span class="nav-icon">⌘</span><span class="nav-label">Notebook builder</span><span class="nav-dot"></span></a>
+          <a href="#history" class="nav-item" data-view="history" aria-label="Run history"><span class="nav-icon">◷</span><span class="nav-label">Run history</span></a>
+          <a href="#recipes" class="nav-item" data-view="recipes" aria-label="Saved recipes"><span class="nav-icon">▤</span><span class="nav-label">Saved recipes</span></a>
+        </nav>
+
+        <div class="side-label connections-label">NOTEBOOK TARGET</div>
+        <div class="connection-row"><span class="connection-status offline"></span><span>Databricks · not connected</span><span class="connected">PySpark</span></div>
+
+        <div class="sidebar-bottom">
+          <div class="help-card"><div class="help-icon">?</div><div><strong>Need a hand?</strong><span>Read the quickstart guide</span></div><span class="help-arrow">↗</span></div>
+          <div class="user-row"><div class="avatar" id="userAvatar">GU</div><div class="user-copy"><strong id="currentUserName">Guest user</strong><span id="currentUserRole">Checking Databricks SSO</span></div><span class="more">···</span></div>
+        </div>
+      </aside>
+      <button id="sidebarBackdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" hidden></button>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div class="breadcrumbs"><span>Workspace</span><span class="crumb-sep">/</span><span id="breadcrumbCurrent">Notebook builder</span></div>
+          <div class="top-actions"><button class="icon-button" aria-label="Notifications">♧<i></i></button><button class="top-help">Help center <span>↗</span></button><button id="authButton" class="auth-button" type="button" aria-haspopup="dialog" aria-controls="authModal" disabled>Checking sign-in…</button></div>
+        </header>
+
+        <div class="page-wrap">
+          <section class="app-view" id="builderView">
+          <section class="page-heading">
+            <div>
+              <div class="eyebrow"><span class="eyebrow-line"></span>DATA ENGINEERING <span class="eyebrow-slash">/</span> NOTEBOOK BUILDER</div>
+              <h1>Shape your data,<br class="mobile-break" /> <span>your way.</span></h1>
+              <p class="page-subtitle">Choose the steps you need. We’ll turn them into a ready-to-run PySpark notebook.</p>
+            </div>
+            <div class="heading-meta"><span class="draft-dot"></span><label class="notebook-name-field"><span class="visually-hidden">Notebook name</span><input id="notebookName" type="text" maxlength="80" value="Untitled notebook" autocomplete="off" spellcheck="false" aria-label="Notebook name" /><span class="notebook-name-edit" aria-hidden="true">✎</span></label><button class="save-recipe-button" id="saveRecipe" type="button">Save recipe</button></div>
+          </section>
+
+          <section class="source-card is-collapsed" aria-labelledby="source-heading">
+            <div class="source-card-heading">
+              <div class="source-heading-copy"><h2 id="source-heading">Add your source</h2><p id="sourceSummary">Select local files, then set the matching Databricks path your notebook will read.</p></div>
+              <div class="source-chip"><span class="source-chip-mark">◈</span> SOURCE</div>
+              <button id="toggleSourceModule" class="module-toggle" type="button" aria-expanded="false" aria-controls="sourceModuleContent" aria-label="Expand source section" title="Expand source section"><span class="module-toggle-icon" aria-hidden="true">⌄</span></button>
+            </div>
+            <div id="sourceModuleContent" class="module-content" hidden>
+            <div class="source-fields">
+              <label class="field source-format"><span>Source format</span><select id="sourceFormat"><option value="delta">Delta</option><option value="csv">CSV</option><option value="json">JSON</option><option value="text">Text (TXT)</option><option value="parquet">Parquet</option><option value="avro">Avro</option><option value="orc">ORC</option><option value="iceberg">Iceberg</option></select></label>
+              <label class="field source-path"><span id="sourcePathLabel">Databricks table or storage path</span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="sourcePath" value="catalog.schema.your_table" spellcheck="false" /></div></label>
+              <label class="field source-df"><span>DataFrame name</span><input id="dataframeName" value="df" spellcheck="false" /></label>
+              <label class="field source-delta-version" id="sourceDeltaVersionField"><span id="sourceVersionLabel">Delta version as of <small>(optional)</small></span><input id="sourceDeltaVersion" type="number" min="0" step="1" placeholder="Latest version" /><small class="setting-hint" id="sourceVersionHint">Read a historical Delta table snapshot, such as version 2.</small></label>
+            </div>
+            <div class="upload-zone" id="uploadZone">
+              <span class="upload-icon" aria-hidden="true">⇧</span>
+              <div class="upload-copy"><strong id="uploadTitle">Choose source files</strong><span id="uploadDescription">CSV, JSON, TXT, Parquet, Avro, or ORC files</span></div>
+              <label class="upload-button" for="sourceFiles" id="uploadButton">Browse files</label>
+              <input class="visually-hidden" id="sourceFiles" type="file" multiple />
+            </div>
+            <div class="selected-files" id="selectedFiles" hidden>
+              <div class="selected-files-heading"><span id="selectedFilesCount">0 files selected</span><button type="button" id="clearFiles">Remove</button></div>
+              <ul id="selectedFilesList"></ul>
+            </div>
+            <p class="upload-footnote" id="uploadFootnote">Local file selection only. For one selected file, its name is added to the Databricks storage folder above. Make the file available at that path in your workspace before running the notebook.</p>
+            </div>
+          </section>
+
+          <div class="builder-grid">
+            <section class="transform-panel" aria-labelledby="transform-heading">
+              <div class="section-heading-row">
+                <div><h2 id="transform-heading">Choose your transformations</h2><p>Search the library, filter by category, and select the steps you need.</p></div>
+              </div>
+              <div class="category-toolbar">
+                <div class="category-picker">
+                  <label class="category-select-wrap" for="categorySelect"><span class="visually-hidden">Transformation category</span><select id="categorySelect" aria-label="Transformation category"></select><span class="category-select-arrow" aria-hidden="true">⌄</span></label>
+                  <span class="category-count-pill" id="categoryCount" aria-live="polite"></span>
+                </div>
+                <label class="operation-search"><span>⌕</span><input id="operationSearch" type="search" placeholder="Find a transformation" aria-label="Find a transformation" /></label>
+              </div>
+              <div class="category-row"><span class="operation-count" id="operationCount"></span><button class="clear-selection" id="clearSelection">Clear selected</button></div>
+              <div class="transform-list" id="transformList"></div>
+              <div class="empty-state" id="emptyState" hidden><span>⌕</span><strong>No matching transformations</strong><small>Try another search term or choose a different category.</small></div>
+              <div class="tip-row"><span class="tip-spark">✳</span><span><strong>Sample values are prefilled</strong> — Checked options generate PySpark. Adjust the example columns and expressions to match your data before running.</span></div>
+            </section>
+
+            <aside class="preview-panel" aria-label="Notebook preview">
+              <div class="preview-topline"><div><div class="preview-label"><span class="live-dot"></span>LIVE PREVIEW</div><h2>Your notebook</h2></div><button class="expand-button" id="expandPreview" type="button" aria-label="Open full-page live preview" aria-expanded="false" title="Open full-page live preview"><span class="expand-icon" aria-hidden="true">⤢</span><span class="expand-label" hidden>Back to builder</span></button></div>
+              <div class="preview-summary"><span class="summary-icon">⌘</span><span id="summaryText">Add a transformation to get started</span></div>
+              <label class="chain-toggle"><input id="chainSelectedSteps" type="checkbox" checked /><span><strong>Chain compatible steps</strong><small>Format select, filter, explode, and column steps as a readable multi-line PySpark pipeline.</small></span></label>
+              <div class="code-window">
+                <div class="code-titlebar"><div class="window-dots"><i></i><i></i><i></i></div><span id="notebookFileLabel">untitled_notebook.py</span><div class="code-actions"><button id="runPreview" class="run-preview-button" type="button" disabled>▶ Run preview</button><button id="editCode" class="copy-button" type="button" aria-pressed="false">Edit code</button><button id="resetCode" class="copy-button" type="button" disabled>Reset</button><button id="copyCode" class="copy-button" type="button"><span>▢</span> Copy</button></div></div>
+                <pre id="codePreview" class="code-content" aria-live="polite"></pre>
+                <textarea id="codeEditor" class="code-editor" aria-label="Edit any line of notebook code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" hidden></textarea>
+              </div>
+              <p id="runHelp" class="run-help">Connect this app to Databricks to run a read-only preview of the first 100 rows.</p>
+              <section id="runResults" class="run-results" aria-live="polite" hidden>
+                <div class="run-results-heading"><strong>Run output</strong><button id="clearRunResults" type="button">Clear</button></div>
+                <p id="runStatus" class="run-status"></p>
+                <div id="runTable" class="run-table-wrap"></div>
+              </section>
+              <section class="output-card output-card-compact is-collapsed" aria-labelledby="output-heading">
+                <div class="output-card-heading">
+                  <div class="source-heading-copy"><h2 id="output-heading">Write your output</h2><p>Choose a format and Databricks destination.</p></div>
+                  <label class="output-toggle"><input id="writeOutput" type="checkbox" /><span>Include write step</span></label>
+                  <button id="toggleOutputModule" class="module-toggle" type="button" aria-expanded="false" aria-controls="outputSettings" aria-label="Expand output settings" title="Expand output settings"><span class="module-toggle-icon" aria-hidden="true">⌄</span></button>
+                </div>
+                <div id="outputSettings" class="output-settings" hidden>
+                  <div class="output-fields">
+                    <label class="field"><span>Output format</span><select id="outputFormat"><option value="delta">Delta</option><option value="csv">CSV</option><option value="json">JSON</option><option value="text">Text (TXT)</option><option value="parquet">Parquet</option><option value="avro">Avro</option><option value="orc">ORC</option><option value="iceberg">Iceberg</option></select></label>
+                    <label class="field output-destination"><span id="outputDestinationLabel">Databricks storage path</span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="outputDestination" placeholder="/Volumes/catalog/schema/volume/cleaned_data" spellcheck="false" /></div></label>
+                    <label class="field" id="outputModeField"><span>Write mode</span><select id="outputMode"><option value="overwrite">Overwrite</option><option value="append">Append</option><option value="errorifexists">Fail if destination exists</option><option value="ignore">Ignore if destination exists</option></select></label>
+                    <label class="field" id="icebergModeField" hidden><span>Table write mode</span><select id="icebergMode"><option value="createOrReplace">Create or replace table</option><option value="append">Append to table</option></select></label>
+                    <label class="field output-partitions"><span>Partition columns <small>(optional)</small></span><input id="outputPartitions" placeholder="department, year" spellcheck="false" /><small class="output-hint" id="partitionHint">Comma separated. Leave blank for an unpartitioned output.</small></label>
+                    <label class="field" id="outputCompressionField"><span>Compression <small>(optional)</small></span><select id="outputCompression"><option value="">Format default</option><option value="snappy">Snappy</option><option value="gzip">Gzip</option><option value="zstd">Zstandard</option><option value="bzip2">Bzip2</option></select></label>
+                    <label class="field" id="icebergLocationField" hidden><span>Iceberg storage location <small>(optional)</small></span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="icebergLocation" placeholder="/Volumes/catalog/schema/volume/iceberg_table" spellcheck="false" /></div></label>
+                    <label class="field" id="csvDelimiterField" hidden><span>CSV delimiter</span><input id="csvDelimiter" value="," maxlength="1" /></label>
+                    <label class="output-check-field" id="csvHeaderField" hidden><input id="csvHeader" type="checkbox" checked /><span>Include column headers</span></label>
+                  </div>
+                  <p class="output-help" id="outputHelp">Enter a Databricks accessible path. The generated notebook writes the transformed DataFrame when you run it.</p>
+                </div>
+              </section>
+              <div class="preview-footer"><span class="python-badge">⌘</span><span>PySpark <b>·</b> Databricks target</span><span class="ready-indicator"><i></i> Code ready</span></div>
+              <label class="download-format-field"><span>Export format</span><select id="downloadFormat" aria-describedby="downloadFormatHint"><option value="databricks">Databricks notebook source (.py)</option><option value="ipynb">Jupyter notebook (.ipynb)</option><option value="txt">Plain text (.txt)</option><option value="markdown">Markdown (.md)</option><option value="html">HTML document (.html)</option><option value="pdf">Print / save as PDF</option></select></label>
+              <button class="generate-button" id="downloadCode"><span>↓</span> Export notebook <span class="button-arrow">↗</span></button>
+              <div class="download-format-hint" id="downloadFormatHint">Databricks source notebook (.py), ready to import into a workspace.</div>
+              <div class="preview-note"><span>✦</span> Edit any line in the preview; Reset restores code from your selected options.</div>
+            </aside>
+          </div>
+          <footer class="page-footer">
+            <span>Built for your lakehouse</span>
+            <span><i class="footer-spark">✳</i> Every step is transparent, editable PySpark</span>
+            <div class="footer-credits">
+              <span class="footer-author">Made by <strong>Madhur Chauhan</strong></span>
+              <span class="footer-copyright">Copyright © 2026 Madhur Chauhan</span>
+              <nav class="footer-social" aria-label="Social links">
+                <a href="https://github.com/madhurraj11" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a href="https://www.linkedin.com/in/madhurchauhan1121/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+                <a href="mailto:madhurchauhan1100@gmail.com">madhurchauhan1100@gmail.com</a>
+              </nav>
+            </div>
+          </footer>
+          </section>
+
+          <section class="app-view secondary-view" id="overviewView" hidden>
+            <div class="page-heading">
+              <div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> OVERVIEW</div><h1>Your data prep<br class="mobile-break" /> <span>workspace.</span></h1><p class="page-subtitle">A quick view of your notebook activity and saved recipes on this browser.</p></div>
+              <button class="primary-action" data-go-view="builder" type="button">＋ New notebook</button>
+            </div>
+            <div class="metric-grid">
+              <article class="metric-card"><span class="metric-icon">⌘</span><span class="metric-label">Transformations selected</span><strong id="overviewTransformCount">0</strong><small>In the current notebook</small></article>
+              <article class="metric-card"><span class="metric-icon">↓</span><span class="metric-label">Notebook exports</span><strong id="overviewExportCount">0</strong><small>Downloaded in this browser</small></article>
+              <article class="metric-card"><span class="metric-icon">▤</span><span class="metric-label">Saved recipes</span><strong id="overviewRecipeCount">0</strong><small>Stored on this device</small></article>
+            </div>
+            <div class="dashboard-grid">
+              <section class="dashboard-card"><div class="dashboard-card-heading"><div><h2>Get started</h2><p>Build and export a reusable PySpark notebook.</p></div><span>✳</span></div><button class="quick-link" data-go-view="builder" type="button"><span>01</span> Configure a notebook <b>↗</b></button><button class="quick-link" data-go-view="recipes" type="button"><span>02</span> Open saved recipes <b>↗</b></button></section>
+              <section class="dashboard-card"><div class="dashboard-card-heading"><div><h2>Recent activity</h2><p>Local code exports and recipe changes.</p></div><button class="text-action" data-go-view="history" type="button">View history ↗</button></div><div id="overviewRecentActivity" class="activity-list"></div></section>
+            </div>
+            <p class="workspace-note"><span>ⓘ</span> This frontend stores recipes and export history in your browser. Secure sign-in and live Databricks job runs need a connected backend.</p>
+          </section>
+
+          <section class="app-view secondary-view" id="historyView" hidden>
+            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> ACTIVITY</div><h1>Notebook <span>history.</span></h1><p class="page-subtitle">Track generated notebook downloads and recipe changes from this browser.</p></div><button class="secondary-action" id="clearHistory" type="button">Clear history</button></div>
+            <div class="history-callout"><span>ⓘ</span><div><strong>Databricks runs are not connected yet.</strong><p>These entries show local notebook and recipe activity. A workspace backend is needed for cluster run status and logs.</p></div></div>
+            <div id="historyList" class="history-list"></div>
+          </section>
+
+          <section class="app-view secondary-view" id="recipesView" hidden>
+            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> LIBRARY</div><h1>Saved <span>recipes.</span></h1><p class="page-subtitle">Reuse notebook settings stored in this browser.</p></div><button class="primary-action" id="saveRecipeFromLibrary" type="button">＋ Save current setup</button></div>
+            <div id="recipeList" class="recipe-grid"></div>
+            <div id="emptyRecipes" class="library-empty" hidden><span>▤</span><strong>No saved recipes yet</strong><p>Configure a notebook, then save it to reuse the source, transformations, and output settings.</p><button class="primary-action" data-go-view="builder" type="button">Open notebook builder</button></div>
+            <p class="workspace-note"><span>ⓘ</span> Saved recipes stay in this browser and do not upload source files.</p>
+          </section>
+        </div>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status"></div>
+    <div class="modal-backdrop" id="authModal" hidden>
+      <section class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle">
+        <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
+        <div class="dialog-mark">⌘</div><h2 id="authDialogTitle">Databricks workspace sign-in</h2>
+        <p id="authDialogCopy">Sign-in is managed by Databricks Apps using your workspace SSO. Open this app from Databricks Apps to authenticate.</p>
+        <div class="auth-identity-card" id="authIdentityCard" hidden><span class="auth-identity-icon">✓</span><div><strong id="authIdentityName"></strong><small id="authIdentityEmail"></small></div></div>
+        <a class="primary-action dialog-primary" id="authWorkspaceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open Databricks workspace <span aria-hidden="true">↗</span></a>
+        <button class="secondary-action dialog-primary" id="refreshAuth" type="button">Check sign-in status</button>
+        <button class="text-action dialog-cancel" type="button" data-close-modal>Close</button>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="recipeModal" hidden>
+      <form class="dialog-card" id="recipeForm" role="dialog" aria-modal="true" aria-labelledby="recipeDialogTitle">
+        <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
+        <div class="dialog-mark">▤</div><h2 id="recipeDialogTitle">Save this recipe</h2>
+        <p>Save the current source, selected transformations, and output settings to reuse them later.</p>
+        <label class="field dialog-field"><span>Recipe name</span><input id="recipeName" required maxlength="60" placeholder="Employee data cleanup" /></label>
+        <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" type="submit">Save recipe</button></div>
+      </form>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

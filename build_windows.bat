@@ -24,7 +24,7 @@ if not exist "build\windows" mkdir "build\windows"
 if not exist "dist\windows" mkdir "dist\windows"
 "%BUILD_PY%" -m PyInstaller --noconfirm --clean --onedir --name LakeLoom ^
     --specpath "build\windows" --workpath "build\windows\work" --distpath "dist\windows" ^
-    --add-data "index.html;." --add-data "app.js;." --add-data "styles.css;." --add-data "favicon.svg;." ^
+    --add-data "%cd%\index.html;." --add-data "%cd%\app.js;." --add-data "%cd%\styles.css;." --add-data "%cd%\favicon.svg;." ^
     --collect-all databricks.connect --collect-all databricks.sdk ^
     --collect-all pyspark --collect-all py4j ^
     --copy-metadata databricks-connect --copy-metadata databricks-sdk --copy-metadata pyspark ^

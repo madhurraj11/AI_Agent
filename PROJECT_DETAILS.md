@@ -11,7 +11,7 @@ Data engineers often repeat common DataFrame operations and hand-write boilerpla
 ## Main user workflow
 
 1. **Name the notebook and configure its source.** Choose a format, enter a catalog table or Databricks-accessible path, and choose a DataFrame variable name. Source formats include Delta, CSV, JSON, text, Parquet, Avro, ORC, and Iceberg. Delta tables can be read at a selected version. The Parquet snapshot field is informational because Parquet itself has no version history.
-2. **Optionally select local files or folders.** The builder accepts files for file-based formats and table folders for Delta or Iceberg. This is a path-assistance feature: the browser does not upload file contents to Databricks. The selected data must already be available at the Databricks path used by the generated notebook.
+2. **Inspect source columns.** Selecting files automatically reads their column names and types through the app backend. CSV/JSON types are sampled; binary and table formats use metadata. A Databricks schema lookup is also available. Unknown input columns are highlighted in selected steps, with checks that account for earlier created, renamed, or removed columns. Inspection does not save files or ingest them into Databricks; data must still be available at the notebook's Databricks source path.
 3. **Find and configure transformations.** Search the library, filter by category, expand a step’s settings, and select the steps to add. The current catalog contains 84 operations across shaping, data quality, filtering and sorting, expressions, date and time, analytics, arrays/maps/JSON, DataFrame utilities, and Delta/SCD operations. Examples include select/rename/drop columns, null handling, deduplication, conditional columns, date functions, aggregates, window functions, array expansion, JSON parsing, and SCD Type 1/2.
 4. **Review the live notebook.** The PySpark source updates as settings change. Compatible operations can be rendered as a readable chained DataFrame pipeline; other operations are emitted as separate Databricks command cells. Generated output-column defaults are made distinct when similar transformations are selected.
 5. **Edit, preview, and export.** Users can edit the generated code, copy it, reset it to the builder-generated version, or run a read-only preview when Databricks is connected. Exports include Databricks source (`.py`), Jupyter (`.ipynb`), text, Markdown, HTML, and a browser print view for PDF.
@@ -88,7 +88,7 @@ Each transformation has a definition with an ID, category, fields, and defaults.
 Preview executes the current pipeline through Databricks Connect, omits the write step, restricts the code it accepts, and returns up to 100 rows. It is for checking transformations, not for managing tables or running a full production job.
 
 **What happens when someone selects a local file?**  
-The UI records its name and helps form a Databricks path. The file is not uploaded by LakeLoom; it must be made available to the Databricks workspace separately.
+The UI helps form a Databricks path and sends the selected file to the app backend for schema inspection. It displays names and types and checks column references in selected steps. The file is not saved or ingested into Databricks; it must be made available to the Databricks workspace separately.
 
 **What is persisted, and where?**  
 Recipes, notebook name, and local activity are stored in browser `localStorage`. There is no account-level recipe synchronization or persistent job-run store in the current app.
@@ -103,4 +103,4 @@ Possible next steps include account-backed recipe sharing, actual Databricks job
 - Added a Flask preview API using Databricks Connect with AST allowlist validation, read-only execution, and a 100-row result limit.
 - Added notebook export formats, browser-local recipe persistence, and a Windows PyInstaller packaging workflow.
 
-**Accuracy note:** local file selection does not transfer files; preview does not perform output writes or Delta/SCD table-management steps; saved recipes and activity are browser-local rather than account-synced.
+**Accuracy note:** selected files are sent to the app for schema inspection without being saved or ingested into Databricks; preview does not perform output writes or Delta/SCD table-management steps; saved recipes and activity are browser-local rather than account-synced.

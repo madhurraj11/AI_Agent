@@ -1,4 +1,7 @@
+# Use Python 3.11 for Databricks Connect 15.4 serverless support.
+# Databricks Connect supplies PySpark; do not install standalone pyspark.
 Flask>=3.0,<4.0
 gunicorn>=22.0,<24.0
 databricks-connect==15.4.*
-pyspark
+pyarrow>=14,<24
+fastavro>=1.9,<2

@@ -10,11 +10,12 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from flask import Flask, abort, jsonify, request, send_from_directory
+from source_schema import inspect_files, spark_columns
 
 
 APP_ROOT = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=None)
-app.config["MAX_CONTENT_LENGTH"] = 100_000
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
 _spark_session = None
 _spark_session_lock = threading.Lock()
@@ -31,7 +32,7 @@ _SAFE_TYPES = {
     "StructType", "StructField", "StringType", "IntegerType", "LongType",
     "DoubleType", "FloatType", "BooleanType", "DateType", "TimestampType",
 }
-_SAFE_DIRECT_CALLS = {"display", "isinstance", "ValueError", *_SAFE_TYPES}
+_SAFE_DIRECT_CALLS = {"display", "isinstance", "set", "ValueError", *_SAFE_TYPES}
 _SAFE_FUNCTIONS = {
     "abs", "add_months", "array", "array_contains", "array_distinct", "array_except",
     "array_intersect", "array_union", "coalesce", "col", "concat", "concat_ws",
@@ -51,7 +52,7 @@ _SAFE_METHODS = {
     "ilike", "isNotNull", "isNull", "isin", "limit", "like", "load", "lower", "option",
     "orderBy", "over", "partitionBy", "pivot", "printSchema", "read", "rowsBetween", "schema", "select", "sort", "splitlines",
     "startswith", "strip", "table", "toDF", "typeName", "unionByName", "where", "withColumn",
-    "withColumnRenamed", "transform", "otherwise", "when",
+    "withColumnRenamed", "withColumns", "transform", "otherwise", "when",
 }
 _SAFE_ATTRIBUTES = _SAFE_FUNCTIONS | _SAFE_METHODS | {
     "columns", "currentRow", "dataType", "fields", "loads", "name", "sub", "unboundedPreceding",
@@ -166,8 +167,10 @@ class _PreviewCodeValidator(ast.NodeVisitor):
             and len(test.ops) == 1
             and isinstance(test.ops[0], ast.In)
             and len(test.comparators) == 1
-            and isinstance(test.comparators[0], ast.Attribute)
-            and test.comparators[0].attr == "columns"
+            and (
+                (isinstance(test.comparators[0], ast.Attribute) and test.comparators[0].attr == "columns")
+                or (isinstance(test.comparators[0], ast.Name) and test.comparators[0].id == "_lakeloom_column_names")
+            )
             and len(node.body) == 1
             and isinstance(node.body[0], ast.AugAssign)
             and isinstance(node.body[0].target, ast.Name)
@@ -237,7 +240,7 @@ def index():
 
 @app.get("/<path:asset>")
 def static_asset(asset):
-    if asset not in {"app.js", "styles.css", "favicon.svg"}:
+    if asset not in {"app.js", "schema.js", "styles.css", "favicon.svg"}:
         abort(404)
     return send_from_directory(APP_ROOT, asset)
 
@@ -272,8 +275,60 @@ def session_status():
     )
 
 
+@app.post("/api/source-schema")
+def source_schema():
+    running_in_apps = bool(os.environ.get("DATABRICKS_APP_NAME"))
+    if running_in_apps and not any(request.headers.get(name, "").strip() for name in ("x-forwarded-user", "x-forwarded-preferred-username", "x-forwarded-email")):
+        abort(401)
+    try:
+        if request.mimetype == "multipart/form-data":
+            source_format = request.form.get("format", "")
+            version = request.form.get("version", "") if source_format == "delta" else ""
+            if source_format not in _READ_FORMATS or (version and not re.fullmatch(r"\d+", version)):
+                return jsonify(error="Choose a supported format and a non-negative Delta version."), 400
+            result = inspect_files(request.files.getlist("files"), source_format, version)
+            if not result["columns"]:
+                return jsonify(error="This source has no named columns to inspect."), 400
+            return jsonify(**result, origin="local")
+
+        if not running_in_apps and not _has_databricks_connect_config():
+            return jsonify(error="Configure Databricks Connect to inspect a catalog table or storage path. You can also select a local file."), 503
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify(error="Send source settings as a JSON object."), 400
+        source_format = payload.get("format")
+        path = payload.get("path")
+        version = str(payload.get("version", "")) if source_format == "delta" else ""
+        if not isinstance(source_format, str) or source_format not in _READ_FORMATS or not isinstance(path, str) or not path.strip() or len(path) > 4096:
+            return jsonify(error="Enter a supported source format and a valid Databricks table or path."), 400
+        if path.lower().startswith(("file:", "jdbc:")) or (version and not re.fullmatch(r"\d+", version)):
+            return jsonify(error="Use a Databricks-accessible source and a non-negative Delta version."), 400
+        with _preview_run_lock:
+            reader = _get_spark_session().read
+            if version:
+                reader = reader.option("versionAsOf", int(version))
+            if source_format in {"delta", "iceberg"} and re.fullmatch(r"[\w-]+(?:\.[\w-]+){1,2}", path.strip()):
+                dataframe = reader.table(path.strip())
+            else:
+                reader = reader.format(source_format)
+                if source_format == "csv":
+                    reader = reader.option("header", "true").option("inferSchema", "true")
+                dataframe = reader.load(path.strip())
+            columns = spark_columns(dataframe.schema)
+        return jsonify(columns=columns, inferred=False, origin="databricks", caseSensitive=str(_get_spark_session().conf.get("spark.sql.caseSensitive", "false")).lower() == "true")
+    except (ValueError, UnicodeError, KeyError) as error:
+        return jsonify(error=f"Could not read the source schema: {str(error)[:500]}"), 400
+    except ImportError:
+        return jsonify(error="Install the updated requirements.txt to enable schema inspection for this format."), 503
+    except Exception as error:
+        app.logger.exception("Source schema inspection failed")
+        return jsonify(error=f"Could not read the source schema: {str(error)[:500]}"), 422
+
+
 @app.post("/api/run-preview")
 def run_preview():
+    if request.content_length and request.content_length > 100_000:
+        abort(413)
     running_in_databricks_apps = bool(os.environ.get("DATABRICKS_APP_NAME"))
     if running_in_databricks_apps:
         headers = request.headers
@@ -317,6 +372,7 @@ def run_preview():
                 "__builtins__": {
                     "__import__": safe_builtins_import,
                     "isinstance": isinstance,
+                    "set": set,
                     "ValueError": ValueError,
                 },
                 "spark": spark,

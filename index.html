@@ -14,24 +14,6 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="sidebar-brand-row">
-          <a class="brand" href="#overview" data-go-view="overview" aria-label="LakeLoom home" title="LakeLoom workspace">
-            <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
-              <rect width="36" height="36" rx="10" fill="#28493f" />
-              <path d="M8 12h5c5 0 5 6 10 6h5" fill="none" stroke="#d7f596" stroke-width="2.2" stroke-linecap="round" />
-              <path d="M8 19h3c5 0 5 6 10 6h7" fill="none" stroke="#a9d89b" stroke-width="2.2" stroke-linecap="round" />
-              <circle cx="28" cy="11" r="2" fill="#71c895" />
-            </svg>
-            <span class="brand-name">lake<span class="brand-accent">loom</span><span class="brand-period">.</span></span>
-          </a>
-          <button id="toggleSidebar" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">
-            <svg class="sidebar-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-              <path class="sidebar-toggle-menu" d="M4 5h12M4 10h12M4 15h12" />
-              <path class="sidebar-toggle-chevron" d="m12 4-6 6 6 6" />
-            </svg>
-          </button>
-        </div>
-
         <div class="workspace-switcher">
           <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><path d="M4 10h5c5 0 5 6 10 6h9" /><path d="M4 18h4c5 0 5 6 10 6h10" /><circle cx="26" cy="7" r="2" /></svg></span>
           <span class="workspace-copy"><strong>LakeLoom workspace</strong><small id="workspaceSessionStatus">Local preview · checking SSO</small></span>
@@ -58,7 +40,21 @@
 
       <main class="main-area">
         <header class="topbar">
-          <div class="breadcrumbs"><span>Workspace</span><span class="crumb-sep">/</span><span id="breadcrumbCurrent">Notebook builder</span></div>
+          <div class="topbar-leading">
+            <button id="toggleSidebar" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">
+              <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            </button>
+            <a class="brand header-brand" href="#overview" data-go-view="overview" aria-label="LakeLoom home" title="LakeLoom workspace">
+              <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+                <rect width="36" height="36" rx="10" fill="#173f35" />
+                <path d="M8 12h5c5 0 5 6 10 6h5" fill="none" stroke="#c7f36b" stroke-width="2.6" stroke-linecap="round" />
+                <path d="M8 19h3c5 0 5 6 10 6h7" fill="none" stroke="#8fe09c" stroke-width="2.6" stroke-linecap="round" />
+                <circle cx="28" cy="11" r="2.2" fill="#53d58a" />
+              </svg>
+              <span class="brand-name">lake<span class="brand-accent">loom</span><span class="brand-period">.</span></span>
+            </a>
+            <div class="breadcrumbs"><span>Workspace</span><span class="crumb-sep">/</span><span id="breadcrumbCurrent">Notebook builder</span></div>
+          </div>
           <div class="top-actions"><button class="icon-button" aria-label="Notifications">♧<i></i></button><button class="top-help">Help center <span>↗</span></button><button id="authButton" class="auth-button" type="button" aria-haspopup="dialog" aria-controls="authModal" disabled>Checking sign-in…</button></div>
         </header>
 
@@ -80,24 +76,33 @@
               <button id="toggleSourceModule" class="module-toggle" type="button" aria-expanded="false" aria-controls="sourceModuleContent" aria-label="Expand source section" title="Expand source section"><span class="module-toggle-icon" aria-hidden="true">⌄</span></button>
             </div>
             <div id="sourceModuleContent" class="module-content" hidden>
+            <div class="source-method" role="group" aria-label="Source location">
+              <button class="source-method-option is-active" type="button" data-source-mode="files" aria-pressed="true"><span class="source-method-icon">▤</span><span><strong>Files</strong><small>CSV, JSON, TXT, Parquet, Avro, or ORC</small></span><em class="source-method-status" hidden>✓ File selected</em></button>
+              <button class="source-method-option" type="button" data-source-mode="folder" aria-pressed="false"><span class="source-method-icon">▱</span><span><strong>Table folder</strong><small>Delta or Iceberg directory</small></span><em class="source-method-status" hidden>✓ Folder selected</em></button>
+              <button class="source-method-option" type="button" data-source-mode="databricks" aria-pressed="false"><span class="source-method-icon">◇</span><span><strong>Databricks</strong><small>Catalog table or storage path</small></span><em class="source-method-status" hidden>✓ Source selected</em></button>
+            </div>
             <div class="source-fields">
-              <label class="field source-format"><span>Source format</span><select id="sourceFormat"><option value="delta">Delta</option><option value="csv">CSV</option><option value="json">JSON</option><option value="text">Text (TXT)</option><option value="parquet">Parquet</option><option value="avro">Avro</option><option value="orc">ORC</option><option value="iceberg">Iceberg</option></select></label>
+              <label class="field source-format" id="sourceFormatField"><span id="sourceFormatLabel">File format <small>(detected automatically)</small></span><select id="sourceFormat"><option value="delta">Delta</option><option value="csv">CSV</option><option value="json">JSON</option><option value="text">Text (TXT)</option><option value="parquet">Parquet</option><option value="avro">Avro</option><option value="orc">ORC</option><option value="iceberg">Iceberg</option></select></label>
               <label class="field source-path"><span id="sourcePathLabel">Databricks table or storage path</span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="sourcePath" value="catalog.schema.your_table" spellcheck="false" /></div></label>
               <label class="field source-df"><span>DataFrame name</span><input id="dataframeName" value="df" spellcheck="false" /></label>
               <label class="field source-delta-version" id="sourceDeltaVersionField"><span id="sourceVersionLabel">Delta version as of <small>(optional)</small></span><input id="sourceDeltaVersion" type="number" min="0" step="1" placeholder="Latest version" /><small class="setting-hint" id="sourceVersionHint">Read a historical Delta table snapshot, such as version 2.</small></label>
             </div>
             <div class="upload-zone" id="uploadZone">
               <span class="upload-icon" aria-hidden="true">⇧</span>
-              <div class="upload-copy"><strong id="uploadTitle">Choose source files</strong><span id="uploadDescription">CSV, JSON, TXT, Parquet, Avro, or ORC files</span></div>
-              <label class="upload-button" for="sourceFiles" id="uploadButton">Browse files</label>
-              <input class="visually-hidden" id="sourceFiles" type="file" multiple />
+              <div class="upload-copy"><strong id="uploadTitle">Choose a source</strong><span id="uploadDescription">The file or table format is detected after selection</span></div>
+              <div class="upload-actions"><label class="upload-button" for="sourceFiles" id="uploadButton">Choose files</label><label class="upload-button" for="sourceFolder" id="uploadFolderButton" hidden>Choose folder</label></div>
+              <input class="visually-hidden" id="sourceFiles" type="file" multiple accept=".csv,.json,.jsonl,.ndjson,.txt,.text,.log,.parquet,.avro,.orc" />
+              <input class="visually-hidden" id="sourceFolder" type="file" multiple webkitdirectory />
             </div>
             <div class="selected-files" id="selectedFiles" hidden>
               <div class="selected-files-heading"><span id="selectedFilesCount">0 files selected</span><button type="button" id="clearFiles">Remove</button></div>
               <ul id="selectedFilesList"></ul>
             </div>
-            <p class="upload-footnote" id="uploadFootnote">Local file selection only. For one selected file, its name is added to the Databricks storage folder above. Make the file available at that path in your workspace before running the notebook.</p>
+            <p class="upload-footnote" id="uploadFootnote">Selected files are sent to this app for schema inspection and are not saved or uploaded to Databricks. Make the data available at the Databricks path above before running the notebook.</p>
+            <div class="schema-toolbar"><button id="loadSourceSchema" class="secondary-action" type="button">Inspect selected files</button><button id="loadRemoteSchema" class="secondary-action" type="button" disabled>Load from Databricks</button></div>
+            <p id="sourceSchemaStatus" class="schema-status" role="status">Select a file to inspect its columns, or load a Databricks table or path.</p>
             </div>
+            <section id="sourceSchemaPanel" class="source-schema-panel" hidden aria-labelledby="schemaHeading"><div class="schema-heading"><h3 id="schemaHeading">Source columns</h3><span id="sourceSchemaCount"></span><button id="toggleSourceSchema" class="secondary-action" type="button" aria-expanded="true" aria-controls="sourceSchemaDetails">Collapse columns ▴</button></div><div id="sourceSchemaDetails"><div class="schema-table-wrap"><table class="schema-table"><thead><tr><th>Column name</th><th>Databricks SQL type</th></tr></thead><tbody id="sourceSchemaColumns"></tbody></table></div><p id="sourceSchemaNote" class="schema-note"></p></div></section>
           </section>
 
           <div class="builder-grid">
@@ -112,7 +117,9 @@
                 </div>
                 <label class="operation-search"><span>⌕</span><input id="operationSearch" type="search" placeholder="Find a transformation" aria-label="Find a transformation" /></label>
               </div>
-              <div class="category-row"><span class="operation-count" id="operationCount"></span><button class="clear-selection" id="clearSelection">Clear selected</button></div>
+              <button id="backToAllTransformations" class="secondary-action" type="button" hidden>← Back to all transformations</button>
+              <div class="category-row"><span class="operation-count" id="operationCount"></span><button class="secondary-action" id="addNewDataFrame" type="button">＋ Add DataFrame step</button><button class="clear-selection" id="clearSelection">Clear selected</button></div>
+              <div id="columnValidationSummary" class="column-validation-summary" hidden role="status" aria-live="polite"></div>
               <div class="transform-list" id="transformList"></div>
               <div class="empty-state" id="emptyState" hidden><span>⌕</span><strong>No matching transformations</strong><small>Try another search term or choose a different category.</small></div>
               <div class="tip-row"><span class="tip-spark">✳</span><span><strong>Sample values are prefilled</strong> — Checked options generate PySpark. Adjust the example columns and expressions to match your data before running.</span></div>
@@ -155,25 +162,22 @@
                 </div>
               </section>
               <div class="preview-footer"><span class="python-badge">⌘</span><span>PySpark <b>·</b> Databricks target</span><span class="ready-indicator"><i></i> Code ready</span></div>
-              <label class="download-format-field"><span>Export format</span><select id="downloadFormat" aria-describedby="downloadFormatHint"><option value="databricks">Databricks notebook source (.py)</option><option value="ipynb">Jupyter notebook (.ipynb)</option><option value="txt">Plain text (.txt)</option><option value="markdown">Markdown (.md)</option><option value="html">HTML document (.html)</option><option value="pdf">Print / save as PDF</option></select></label>
-              <button class="generate-button" id="downloadCode"><span>↓</span> Export notebook <span class="button-arrow">↗</span></button>
-              <div class="download-format-hint" id="downloadFormatHint">Databricks source notebook (.py), ready to import into a workspace.</div>
+              <select id="downloadFormat" hidden><option value="databricks">Databricks notebook source (.py)</option><option value="ipynb">Jupyter notebook (.ipynb)</option><option value="txt">Plain text (.txt)</option><option value="markdown">Markdown (.md)</option><option value="html">HTML document (.html)</option><option value="pdf">Print / save as PDF</option></select>
+              <div class="export-menu-wrap">
+                <button class="generate-button" id="downloadCode" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="exportFormatMenu"><span>↓</span> Export notebook <span class="button-arrow">⌄</span></button>
+                <div class="export-format-menu" id="exportFormatMenu" role="menu" hidden>
+                  <button type="button" role="menuitem" data-export-format="databricks"><strong>Databricks notebook</strong><span>Python source (.py)</span></button>
+                  <button type="button" role="menuitem" data-export-format="ipynb"><strong>Jupyter notebook</strong><span>Notebook file (.ipynb)</span></button>
+                  <button type="button" role="menuitem" data-export-format="txt"><strong>Plain text</strong><span>Code file (.txt)</span></button>
+                  <button type="button" role="menuitem" data-export-format="markdown"><strong>Markdown</strong><span>Document file (.md)</span></button>
+                  <button type="button" role="menuitem" data-export-format="html"><strong>HTML document</strong><span>Standalone webpage (.html)</span></button>
+                  <button type="button" role="menuitem" data-export-format="pdf"><strong>PDF</strong><span>Open print / Save as PDF</span></button>
+                </div>
+              </div>
+              <div class="download-format-hint" id="downloadFormatHint">Click Export notebook, then choose a download format. The download starts immediately.</div>
               <div class="preview-note"><span>✦</span> Edit any line in the preview; Reset restores code from your selected options.</div>
             </aside>
           </div>
-          <footer class="page-footer">
-            <span>Built for your lakehouse</span>
-            <span><i class="footer-spark">✳</i> Every step is transparent, editable PySpark</span>
-            <div class="footer-credits">
-              <span class="footer-author">Made by <strong>Madhur Chauhan</strong></span>
-              <span class="footer-copyright">Copyright © 2026 Madhur Chauhan</span>
-              <nav class="footer-social" aria-label="Social links">
-                <a href="https://github.com/madhurraj11" target="_blank" rel="noopener noreferrer">GitHub</a>
-                <a href="https://www.linkedin.com/in/madhurchauhan1121/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-                <a href="mailto:madhurchauhan1100@gmail.com">madhurchauhan1100@gmail.com</a>
-              </nav>
-            </div>
-          </footer>
           </section>
 
           <section class="app-view secondary-view" id="overviewView" hidden>
@@ -205,6 +209,80 @@
             <div id="emptyRecipes" class="library-empty" hidden><span>▤</span><strong>No saved recipes yet</strong><p>Configure a notebook, then save it to reuse the source, transformations, and output settings.</p><button class="primary-action" data-go-view="builder" type="button">Open notebook builder</button></div>
             <p class="workspace-note"><span>ⓘ</span> Saved recipes stay in this browser and do not upload source files.</p>
           </section>
+
+          <section class="app-view secondary-view documentation-view" id="documentationView" hidden>
+            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>LAKELOOM <span class="eyebrow-slash">/</span> GUIDE</div><h1>Product <span>documentation.</span></h1><p class="page-subtitle">Build, review, preview, and export a reusable PySpark notebook from one workspace.</p></div><button class="primary-action" data-go-view="builder" type="button">Open notebook builder</button></div>
+            <div class="docs-callout"><span>✦</span><div><strong>Quick start</strong><p>Choose a source, inspect its columns, select transformations in execution order, review the generated PySpark, then preview or export the notebook.</p></div></div>
+            <div class="docs-grid">
+              <article class="docs-card"><span class="docs-step">01</span><h2>Choose a source</h2><p>Select <strong>Files</strong> for CSV, JSON, TXT, Parquet, Avro, or ORC; <strong>Table folder</strong> for Delta or Iceberg directories; or <strong>Databricks</strong> for a catalog table or storage path.</p><ul><li>Local file formats are detected automatically.</li><li>Enter the Databricks path that the generated notebook will read.</li><li>Selected local files are inspected for schema and are not uploaded to Databricks.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">02</span><h2>Inspect the schema</h2><p>Choose a file or folder and use the source inspection action. LakeLoom displays available columns and their Spark SQL types.</p><ul><li>Unknown transformation columns are highlighted.</li><li>Reinspect after replacing the local source.</li><li>Use Load from Databricks when the source is available only in your workspace.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">03</span><h2>Select transformations</h2><p>Search or browse the transformation library. Select steps in the order they should run and complete the settings shown inside each selected card.</p><ul><li>Hover dropdowns and read the explanation under the selected option.</li><li>Uncheck and reselect a step to change its execution position.</li><li>The live preview updates as settings change.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">04</span><h2>Flatten nested JSON</h2><p>Choose the method that matches the source type.</p><ul><li><strong>Structs only:</strong> enter a path such as <code>order.item.details</code>.</li><li><strong>Single array:</strong> explode one array and optionally expand struct fields.</li><li><strong>Multiple arrays:</strong> add ordered mappings such as <code>orders -&gt; order</code> and <code>order.items -&gt; item</code>, then list the leaf fields to select.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">05</span><h2>Create more DataFrames</h2><p>Select <strong>Continue in a new DataFrame</strong> where a pipeline boundary is required.</p><ul><li>Choose Current result to continue previous transformations.</li><li>Choose Original source to begin again from the input DataFrame.</li><li>Add more DataFrame steps for names such as <code>df_next</code> and <code>df_part</code>.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">06</span><h2>Configure output</h2><p>Enable the write step and choose Delta, CSV, JSON, TXT, Parquet, Avro, ORC, or Iceberg.</p><ul><li>Set the Databricks destination and write mode.</li><li>Add partition columns only when they improve downstream reads.</li><li>Review format-specific settings such as CSV headers and compression.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">07</span><h2>Preview with Databricks</h2><p>Connect through Databricks Apps or a configured Databricks Connect profile. Run preview executes the generated notebook against the connected workspace and displays a limited result.</p><ul><li>Review the code before running it.</li><li>Use Edit code for manual adjustments.</li><li>Reset code to regenerate it from the selected options.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">08</span><h2>Export the notebook</h2><p>Click <strong>Export notebook</strong> and choose a format. The download begins immediately.</p><ul><li>Databricks source: <code>.py</code></li><li>Jupyter: <code>.ipynb</code></li><li>Plain text, Markdown, HTML, or Print / Save as PDF</li></ul></article>
+              <article class="docs-card"><span class="docs-step">09</span><h2>Save and reuse recipes</h2><p>Save the current source, transformations, and output settings as a recipe. Open Saved recipes to restore or delete a configuration.</p><ul><li>Recipes are stored in the current browser.</li><li>Source file contents are not stored in a recipe.</li><li>Verify paths before running a restored recipe.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">10</span><h2>Review activity</h2><p>Run history records local notebook exports and recipe changes. Databricks execution status requires a connected backend.</p><ul><li>Use Clear history to remove local entries.</li><li>Browser data is specific to the current browser profile.</li><li>Report problems through the footer issue link.</li></ul></article>
+            </div>
+            <section class="docs-section">
+              <div class="docs-section-heading"><span>REFERENCE</span><h2>Transformation guide</h2><p>Choose the smallest set of steps that produces the required result. Steps execute in their selected order.</p></div>
+              <div class="docs-table-wrap"><table class="docs-table"><thead><tr><th>Category</th><th>Use it for</th><th>Common operations and guidance</th></tr></thead><tbody>
+                <tr><td>Select &amp; shape</td><td>Control DataFrame columns and structure.</td><td>Select required fields early for wide sources. Create, rename, remove, and standardize columns.</td></tr>
+                <tr><td>Data quality</td><td>Repair missing or duplicate records.</td><td>Handle nulls, distinct rows, duplicate keys, and latest records. Use stable key and timestamp columns.</td></tr>
+                <tr><td>Filter &amp; sort</td><td>Restrict or order records.</td><td>Use PySpark or SQL conditions. Wrap combined PySpark conditions in parentheses when using <code>&amp;</code> and <code>|</code>.</td></tr>
+                <tr><td>Expressions</td><td>Create business fields and clean values.</td><td>Calculated columns, classifications, text cleanup, regex, arrays, maps, and JSON functions.</td></tr>
+                <tr><td>Dates</td><td>Parse, format, compare, and shift dates.</td><td>Use Spark patterns such as <code>yyyy-MM-dd</code> and confirm they match the input text.</td></tr>
+                <tr><td>Analytics</td><td>Summarize data or calculate within groups.</td><td>Group, aggregate, pivot, rank, and cumulative totals. Choose partition keys carefully.</td></tr>
+                <tr><td>Complex types</td><td>Work with arrays, maps, structs, and JSON.</td><td>Explode arrays, parse JSON strings with a schema, and flatten nested fields.</td></tr>
+                <tr><td>DataFrame tools</td><td>Preserve intermediate pipelines.</td><td>Continue from the current result or original source. DataFrame assignments are lazy and do not copy data.</td></tr>
+                <tr><td>Delta &amp; SCD</td><td>Maintain Delta tables and history.</td><td>SCD Type 1 and 2, inspect, compare, delete, restore, and vacuum. Verify targets and permissions first.</td></tr>
+              </tbody></table></div>
+            </section>
+
+            <section class="docs-section">
+              <div class="docs-section-heading"><span>EXAMPLE</span><h2>Flatten multiple JSON array levels</h2><p>Use an ordered explode plan when one array contains structs that contain another array.</p></div>
+              <div class="docs-example-grid">
+                <div class="docs-example"><h3>Array expansion plan</h3><pre><code>orders -&gt; order&#10;order.items -&gt; item</code></pre><p>Each output alias becomes available to the following line. Renaming an alias updates dependent paths in the form.</p></div>
+                <div class="docs-example"><h3>Output field plan</h3><pre><code>user_id&#10;address.city -&gt; city&#10;order.order_id -&gt; order_id&#10;item.product_id -&gt; product_id&#10;item.quantity -&gt; quantity</code></pre><p>Use <code>path -&gt; alias</code> when the output name should differ from the source leaf name.</p></div>
+              </div>
+              <div class="docs-code"><div><span>Generated PySpark pattern</span><button type="button" data-copy-doc-code>Copy example</button></div><pre><code id="docsFlattenCode">df = (&#10;    df&#10;    .withColumn("order", F.explode(F.col("orders")))&#10;    .withColumn("item", F.explode(F.col("order.items")))&#10;    .select(&#10;        F.col("user_id"),&#10;        F.col("address.city").alias("city"),&#10;        F.col("order.order_id").alias("order_id"),&#10;        F.col("item.product_id").alias("product_id")&#10;    )&#10;)</code></pre></div>
+            </section>
+
+            <section class="docs-section">
+              <div class="docs-section-heading"><span>DELTA LAKE</span><h2>SCD and table operations</h2><p>These actions can change a Delta target. Review the generated code and target before running it.</p></div>
+              <div class="docs-detail-grid">
+                <article><h3>SCD Type 1</h3><p>Keeps one current row per business key. Matching records are updated and new records are inserted; previous values are not retained.</p></article>
+                <article><h3>SCD Type 2</h3><p>Preserves history by expiring the current record and inserting a new version with valid-from, valid-to, and current-row fields.</p></article>
+                <article><h3>Inspect and compare</h3><p>Review table history or metadata and compare two versions with distinct or duplicate-preserving differences.</p></article>
+                <article><h3>Restore, delete, and vacuum</h3><p>Restore returns to a prior version, delete removes matching rows, and vacuum removes old files after retention.</p></article>
+              </div>
+            </section>
+
+            <section class="docs-section">
+              <div class="docs-section-heading"><span>TROUBLESHOOTING</span><h2>Common questions</h2></div>
+              <div class="docs-faq">
+                <details><summary>Why is a column highlighted as unknown?</summary><p>The column is unavailable at that position in the selected order. Check spelling, reinspect the source, or move the step after the transformation that creates it.</p></details>
+                <details><summary>Why does a nested array fail in the struct input?</summary><p>The optional nested field input expands structs only. Select Multiple array levels and add each array path to the explode plan.</p></details>
+                <details><summary>Why is a Databricks path required for a local file?</summary><p>The local file is used for schema inspection. The exported notebook runs in Databricks and needs a table or storage path available there.</p></details>
+                <details><summary>Why is Run preview unavailable?</summary><p>Configure Databricks Connect or run LakeLoom as a Databricks App with workspace authentication and source permissions.</p></details>
+                <details><summary>Do new DataFrame steps duplicate data?</summary><p>No. Spark DataFrames are lazy query plans. Assigning a new variable does not execute, copy, cache, or checkpoint the data.</p></details>
+                <details><summary>Where are recipes and history stored?</summary><p>They are stored in the current browser profile. They do not automatically transfer to another browser or device.</p></details>
+              </div>
+            </section>
+            <div class="docs-finish"><div><strong>Ready to build?</strong><p>Open the builder and configure your first reusable PySpark notebook.</p></div><button class="primary-action" data-go-view="builder" type="button">Start building</button></div>
+          </section>
+
+          <footer class="page-footer">
+            <div class="footer-product"><span class="footer-product-mark" aria-hidden="true">✳</span><span><strong>LakeLoom</strong><small>PySpark notebook builder</small></span></div>
+            <nav class="footer-links" aria-label="Product links">
+              <a href="#documentation" data-go-view="documentation">Documentation</a>
+              <a href="https://github.com/madhurraj11/AI_Agent" target="_blank" rel="noopener noreferrer">GitHub</a>
+              <a href="https://www.linkedin.com/in/madhurchauhan1121/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+              <a href="https://github.com/madhurraj11/AI_Agent/issues/new" target="_blank" rel="noopener noreferrer">Report an issue</a>
+            </nav>
+            <div class="footer-meta"><span class="footer-version">v1.0.0</span><span>Made by <strong>Madhur Chauhan</strong> · © 2026</span></div>
+          </footer>
         </div>
       </main>
     </div>
@@ -229,6 +307,7 @@
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" type="submit">Save recipe</button></div>
       </form>
     </div>
+    <script src="schema.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -6,6 +6,8 @@ on:
     paths:
       - "app.py"
       - "app.js"
+      - "schema.js"
+      - "source_schema.py"
       - "index.html"
       - "styles.css"
       - "favicon.svg"

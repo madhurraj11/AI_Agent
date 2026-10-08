@@ -6,7 +6,18 @@ The **Run preview** action uses Databricks Connect 15.4 with serverless compute.
 
 ## Run locally
 
-Install `requirements.txt`, configure a Databricks Connect profile for serverless compute, then run `python app.py` and open `http://localhost:8000`:
+Use **Python 3.11** in a separate environment. With Anaconda or Miniconda:
+
+```bash
+conda create -n lakeloom python=3.11 -y
+conda activate lakeloom
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Python 3.13 is incompatible with NumPy 1.26.4, which can be selected by this dependency stack. If installation reports a NumPy compiler or metadata-generation error, use the Python 3.11 environment above. Do not install standalone `pyspark` alongside `databricks-connect`; Databricks Connect provides the PySpark modules.
+
+Configure a Databricks Connect profile for serverless compute, then run `python app.py` and open `http://localhost:8000`:
 
 ```bash
 databricks auth login --configure-serverless --host https://<your-workspace-host>
@@ -14,6 +25,26 @@ python app.py
 ```
 
 Complete the OAuth sign-in in the browser and use the `DEFAULT` profile, or set `DATABRICKS_CONFIG_PROFILE` to your profile name before starting LakeLoom. The preview uses your Databricks user permissions. Without a configured profile, the Run preview button stays disabled and explains how to connect.
+
+## Inspect source columns
+
+Selecting local files automatically detects CSV, JSON, TXT, Parquet, Avro, or ORC from the file extension and displays the source columns and data types. **Browse folder** detects Delta from `_delta_log` and Iceberg from its metadata directory. The detected format remains editable when an extension is misleading. Files are sent to the app backend for inspection without saving them or uploading them to Databricks. CSV and JSON types are inferred from up to 1,000 records per file; Parquet, ORC, Avro, Delta, and Iceberg use their stored metadata. TXT sources have one string column named `value`. Local inspection supports selections up to 60 MB; Delta checkpoint-only folders and larger sources can use **Load from Databricks** with a configured connection and accessible table or path.
+
+After loading a schema, selected transformations show warnings beside unknown input columns, including common SQL and `F.col(...)` expression references. Checks follow selection order and account for calculated, renamed, selected, removed, aggregated, and flattened columns. New output column names are allowed. Dynamic pivot columns, structures whose fields cannot be determined locally, manual notebook edits, and Delta management fields referencing a separate target table require Spark validation. Changing the source clears its schema and previous warnings.
+
+For nested structs, **Flatten nested JSON** accepts a full dot-separated path. For example, `order.item.details` expands `order`, then `item`, then `details` in one selected step. For one array such as `orders`, choose a single-array method and optionally enter `details.more_details` under **Then expand struct fields only**. The generated pipeline explodes the array item and continues expanding those struct levels in order.
+
+For a pipeline containing several nested arrays, choose **Multiple array levels — build an explode plan**. Add one `source path -> output column` line per array, such as `orders -> order` followed by `order.items -> item`. Then list the leaf columns to select, such as `address.city -> city` and `item.product_id -> product_id`. Any number of array levels and output fields can be added; the generated code chains `withColumn(..., explode(...))` calls and finishes with an explicit `select(...)`.
+
+## Generated-code optimization
+
+The new DataFrame option includes **Start new DataFrame from**: choose **Current result** to retain previous transformations, or **Original source** to begin the next transformations with the source's original columns and data. Original-source mode preserves a lazy reference before the first transformation and restores source-schema validation at the boundary. Neither option physically copies or caches the data.
+
+To keep intermediate results, select your first transformations (for example, four), select **Continue in a new DataFrame** under **DataFrame tools**, enter a name such as `df_next`, then select the remaining transformations. Use **Add DataFrame step** to add more boundaries with separate names, such as `df_part`. Each generated assignment preserves its preceding DataFrame, and later steps and output writing use the most recent DataFrame. All completed DataFrames are displayed in the final action cell. These are lazy DataFrame references, not copies, caches, or checkpoints. Step order follows the order in which options were selected; uncheck and reselect options to change that order.
+
+DataFrame transformations retain their selected order. Delta table operations and SCD actions run after those transformations, retaining their relative order. Output writing follows these operations, and all generated `display` calls appear in the final notebook cell. SCD null/duplicate checks stay immediately before their merge or write, since those actions validate the operation's inputs. This ordering also means an SCD merge consumes the completed source pipeline even when it was selected before other transformations.
+
+Generated notebooks batch independent arithmetic mappings in calculated-column and date-expression steps using `withColumns`. References to earlier outputs and repeated output names start a new batch; complex SQL and function expressions stay sequential. The selected transformation order is preserved because moving filters, sorts, windows, or aggregations can change results. This reduces projection-plan overhead for eligible mappings; execution time still depends on data size, shuffles, storage, and Databricks compute. Manually edited notebook code is not automatically optimized.
 
 ## Build for Windows
 

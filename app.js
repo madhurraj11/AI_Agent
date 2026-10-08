@@ -157,17 +157,28 @@ const jsonOperations = [
 
 transformations.push(...textOperations, ...numericOperations, ...dateOperations, ...windowOperations, ...arrayOperations, ...mapOperations, ...jsonOperations);
 transformations.push({
+  id: 'newDataFrame', category: 'dataframe', icon: '▦', title: 'Continue in a new DataFrame',
+  description: 'Keep the current result and apply subsequent selected steps to a new DataFrame.', fields: [
+    { key: 'base', label: 'Start new DataFrame from', type: 'select', value: 'current', options: [['current', 'Current result — keep previous transformations'], ['source', 'Original source — start without previous transformations']] },
+    inputField('target', 'New DataFrame name', 'df_next', true, 'df_next', 'Select the steps that should run before this boundary. Add another DataFrame step for a later boundary; each one keeps its own distinct name. These are lazy references, not copies or caches.')
+  ]
+});
+transformations.push({
   id: 'flattenNested', category: 'complex', icon: '{ }', title: 'Flatten nested JSON',
-  description: 'Expand one struct level or arrays of structs; parse JSON strings with from_json first.', fields: [
-    inputField('source', 'Struct or array column', 'payload'),
-    { key: 'mode', label: 'Flatten method', type: 'select', value: 'struct', options: [
-      ['struct', 'Expand struct fields'], ['explode', 'Explode array'], ['posexplode', 'Posexplode array'],
-      ['explode_outer', 'Explode array (keep null / empty)'], ['posexplode_outer', 'Posexplode (keep null / empty)'],
+  description: 'Expand a full nested struct path or flatten an array; parse JSON strings with from_json first.', fields: [
+    { ...inputField('source', 'Nested column or struct path', 'order.item.details', true, 'payload', 'For nested structs, enter the full dot-separated path, such as order.item.details. Each struct level is expanded in sequence.'), whenAny: { key: 'mode', values: ['struct', 'explode', 'posexplode', 'explode_outer', 'posexplode_outer', 'explode_struct', 'posexplode_struct', 'explode_outer_struct', 'posexplode_outer_struct'] } },
+    { key: 'mode', label: 'Flatten method', type: 'select', value: 'recursive', options: [
+      ['recursive', 'Multiple array levels — build an explode plan'], ['struct', 'Structs only — expand a dot-separated path'], ['explode', 'Single array — explode'], ['posexplode', 'Single array — posexplode'],
+      ['explode_outer', 'Single array — explode and keep null / empty'], ['posexplode_outer', 'Single array — posexplode and keep null / empty'],
       ['explode_struct', 'Explode array of structs into columns'], ['posexplode_struct', 'Posexplode array of structs into columns'],
       ['explode_outer_struct', 'Explode array of structs, keep null / empty'], ['posexplode_outer_struct', 'Posexplode array of structs, keep null / empty']
     ], wide: true },
     { key: 'target', label: 'Output item column', type: 'input', value: 'item', placeholder: 'item', whenAny: { key: 'mode', values: ['explode', 'posexplode', 'explode_outer', 'posexplode_outer', 'explode_struct', 'posexplode_struct', 'explode_outer_struct', 'posexplode_outer_struct'] } },
-    { key: 'position', label: 'Array position column', type: 'input', value: 'position', placeholder: 'position', whenAny: { key: 'mode', values: ['posexplode', 'posexplode_outer', 'posexplode_struct', 'posexplode_outer_struct'] } }
+    { key: 'position', label: 'Array position column', type: 'input', value: 'position', placeholder: 'position', whenAny: { key: 'mode', values: ['posexplode', 'posexplode_outer', 'posexplode_struct', 'posexplode_outer_struct'] } },
+    { key: 'nestedStructs', label: 'Then expand struct fields only (optional)', type: 'input', value: '', placeholder: 'details.more_details', wide: true, hint: 'Use this only for structs. If another level is an array, choose “Multiple array levels” above and add it to the explode plan.', whenAny: { key: 'mode', values: ['explode', 'posexplode', 'explode_outer', 'posexplode_outer', 'explode_struct', 'posexplode_struct', 'explode_outer_struct', 'posexplode_outer_struct'] } },
+    { key: 'recursiveExplodeMode', label: 'Array expansion', type: 'select', value: 'explode', options: [['explode', 'Explode arrays'], ['explode_outer', 'Explode arrays and keep null / empty']], when: { key: 'mode', value: 'recursive' } },
+    { key: 'explodeSteps', label: 'Array path → output column (one per line)', type: 'textarea', value: 'orders -> order\norder.items -> item', placeholder: 'orders -> order\norder.items -> item', wide: true, hint: 'Steps run from top to bottom. Add as many array levels as needed.', when: { key: 'mode', value: 'recursive' } },
+    { key: 'selectFields', label: 'Column path → output name (one per line)', type: 'textarea', value: 'user_id\nname\nemail\ncreated_at\naddress.street -> street\naddress.city -> city\naddress.state -> state\naddress.zip -> zipcode\norder.order_id -> order_id\norder.amount -> order_amount\nitem.product_id -> product_id\nitem.quantity -> quantity', placeholder: 'user_id\naddress.city -> city\norder.order_id -> order_id\nitem.product_id -> product_id', wide: true, hint: 'An output name is optional for top-level columns. Nested paths default to their final field name.', when: { key: 'mode', value: 'recursive' } }
   ]
 });
 transformations.push(
@@ -283,6 +294,39 @@ function makeDuplicateOutputDefaultsUnique() {
 
 makeDuplicateOutputDefaultsUnique();
 
+function isNewDataFrameStep(itemOrId) {
+  const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
+  return id === 'newDataFrame' || /^newDataFrame_\d+$/.test(id || '');
+}
+
+function nextNewDataFrameId() {
+  const suffixes = transformations
+    .map(item => item.id.match(/^newDataFrame_(\d+)$/))
+    .filter(Boolean)
+    .map(match => Number(match[1]));
+  return `newDataFrame_${Math.max(1, ...suffixes) + 1}`;
+}
+
+function nextNewDataFrameName() {
+  const usedNames = new Set([document.getElementById('dataframeName')?.value.trim() || 'df']);
+  transformations.filter(isNewDataFrameStep).forEach(item => usedNames.add(getValue(item.id, 'target')));
+  let candidate = 'df_part';
+  let suffix = 2;
+  while (usedNames.has(candidate)) candidate = `df_part_${suffix++}`;
+  return candidate;
+}
+
+function createNewDataFrameStep(id, target) {
+  const template = transformations.find(item => item.id === 'newDataFrame');
+  return {
+    ...template,
+    id,
+    fields: template.fields.map(field => field.key === 'target'
+      ? { ...field, value: target, placeholder: target }
+      : { ...field })
+  };
+}
+
 const categories = [
   ['all', 'All transformations'], ['shape', 'Select & shape'], ['quality', 'Data quality'],
   ['filtering', 'Filter & sort'], ['expressions', 'Columns & expressions'],
@@ -301,7 +345,7 @@ const sourcePathExamples = {
 };
 let activeSuggestedFormat = 'delta';
 
-const state = { selected: new Set(), category: 'all', uploads: [], uploadedPathBase: null, uploadedPathFileName: null, view: 'builder', customCode: null, unsyncedCodeEdits: false, editingCode: false, previewRunning: false, lastRunCode: null, session: { authenticated: false, databricksApp: false, displayName: '', email: '', workspaceUrl: '' } };
+const state = { selected: new Set(), category: 'all', uploads: [], sourceMode: 'files', activeSourceMode: 'files', uploadSelectionKind: 'files', uploadedPathBase: null, uploadedPathFileName: null, view: 'builder', customCode: null, unsyncedCodeEdits: false, editingCode: false, previewRunning: false, lastRunCode: null, session: { authenticated: false, databricksApp: false, displayName: '', email: '', workspaceUrl: '' } };
 const list = document.getElementById('transformList');
 const codePreview = document.getElementById('codePreview');
 const toast = document.getElementById('toast');
@@ -418,9 +462,9 @@ function renderWorkspaceViews() {
 }
 
 function setView(view) {
-  const knownViews = ['overview', 'builder', 'history', 'recipes'];
+  const knownViews = ['overview', 'builder', 'history', 'recipes', 'documentation'];
   const target = knownViews.includes(view) ? view : 'builder';
-  const titles = { overview: 'Overview', builder: 'Notebook builder', history: 'Run history', recipes: 'Saved recipes' };
+  const titles = { overview: 'Overview', builder: 'Notebook builder', history: 'Run history', recipes: 'Saved recipes', documentation: 'Documentation' };
   if (document.getElementById('builderView').classList.contains('preview-focus-mode')) {
     setPreviewFocusMode(false);
   }
@@ -492,6 +536,7 @@ function renderDatabricksSession(session = {}) {
     workspaceLink.firstChild.textContent = 'Open Databricks workspace ';
   }
   updateRunAvailability();
+  updateSchemaAvailability();
 }
 
 function updateRunAvailability() {
@@ -538,22 +583,23 @@ async function loadDatabricksSession() {
   }
 }
 
-function renderTransformations() {
-  list.innerHTML = transformations.map(item => {
-    const fields = item.fields.map(field => {
+function transformationCardMarkup(item) {
+  const fields = item.fields.map(field => {
       const id = `${item.id}-${field.key}`;
+      const optionHelp = dropdownOptionHelp(item.id, field.key);
       const control = field.type === 'select'
-        ? `<select class="setting-select" id="${id}" data-op="${item.id}" data-key="${field.key}">${field.options.map(([value, label]) => `<option value="${value}" ${value === field.value ? 'selected' : ''}>${label}</option>`).join('')}</select>`
+        ? `<select class="setting-select" id="${id}" data-op="${item.id}" data-key="${field.key}" title="${escapeHtml(optionHelp[field.value] || '')}">${field.options.map(([value, label]) => `<option value="${value}" title="${escapeHtml(optionHelp[value] || '')}" ${value === field.value ? 'selected' : ''}>${label}</option>`).join('')}</select>`
         : field.type === 'textarea'
           ? `<textarea class="setting-area" id="${id}" data-op="${item.id}" data-key="${field.key}" placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(field.value || '')}</textarea>`
           : `<input class="setting-input" id="${id}" data-op="${item.id}" data-key="${field.key}" value="${escapeHtml(field.value || '')}" placeholder="${escapeHtml(field.placeholder || '')}" spellcheck="false" />`;
-      const hint = field.hint ? `<div class="setting-hint">${field.hint}</div>` : '';
+      const optionHint = field.type === 'select' ? `<div class="setting-hint dropdown-option-help" data-select-help>${escapeHtml(optionHelp[field.value] || '')}</div>` : '';
+      const hint = `${optionHint}${field.hint ? `<div class="setting-hint">${field.hint}</div>` : ''}`;
       const condition = field.when
         ? `data-when-key="${field.when.key}" data-when-value="${field.when.value}"`
         : field.whenAny ? `data-when-any-key="${field.whenAny.key}" data-when-values="${field.whenAny.values.join('|')}"` : '';
       return `<div class="setting-field ${field.wide ? 'wide' : ''}" ${condition}><label for="${id}">${field.label}</label>${control}${hint}</div>`;
     }).join('');
-    return `<article class="transform-card" data-card="${item.id}" data-category="${item.category}">
+  return `<article class="transform-card" data-card="${item.id}" data-category="${item.category}">
       <div class="transform-card-head" data-toggle="${item.id}">
         <span class="check-wrap"><input class="transform-check" type="checkbox" aria-label="Select ${item.title}" data-check="${item.id}" /></span>
         <span class="transform-icon" aria-hidden="true">${item.icon}</span>
@@ -562,7 +608,59 @@ function renderTransformations() {
       </div>
       <div class="transform-settings"><div class="setting-grid">${fields || '<div class="setting-hint">No additional settings required.</div>'}</div></div>
     </article>`;
-  }).join('');
+}
+
+const dropdownHelp = {
+  'selectColumns.mode': {
+    columns: 'Keep the named columns in the order entered.',
+    range: 'Keep columns between zero-based start and end positions; the end position is excluded.'
+  },
+  'nulls.strategy': {
+    dropAny: 'Remove a row when any column contains null.', dropAll: 'Remove a row only when every column is null.',
+    dropSubset: 'Remove a row when any selected key column is null.', fillValue: 'Replace nulls in the selected columns with one shared value.',
+    fillMap: 'Set a different replacement value for each listed column.', coalesce: 'Use the fallback only when the selected column is null.',
+    nvl: 'Spark SQL NVL behavior: return the fallback when the selected column is null.', nullif: 'Return null when the column equals the comparison value.'
+  },
+  'filter.method': { filter: 'Apply the condition with DataFrame.filter().', where: 'Apply the same condition with the equivalent DataFrame.where().' },
+  'sort.method': { orderBy: 'Sort rows with DataFrame.orderBy().', sort: 'Sort rows with the equivalent DataFrame.sort().' },
+  'aggregate.mode': { group: 'Create one result row per group and calculate aggregates.', pivot: 'Turn values from the pivot column into result columns before aggregating.' },
+  'newDataFrame.base': { current: 'Start from the result produced by all preceding selected transformations.', source: 'Start again from the original source DataFrame and leave preceding results available.' },
+  'flattenNested.mode': {
+    recursive: 'Explode two or more nested array levels in sequence, then select and rename the required leaf fields.',
+    struct: 'Expand struct fields through a dot-separated path without exploding an array.',
+    explode: 'Create one row per array item and discard rows whose array is null or empty.',
+    posexplode: 'Create one row per array item, including its zero-based array position; null or empty arrays are discarded.',
+    explode_outer: 'Create one row per array item and preserve rows whose array is null or empty.',
+    posexplode_outer: 'Create one row per array item with its position and preserve null or empty arrays.',
+    explode_struct: 'Explode one array and immediately promote every field of each struct item to a column.',
+    posexplode_struct: 'Explode one array of structs, keep each item position, and promote the struct fields to columns.',
+    explode_outer_struct: 'Explode an array of structs into columns while preserving null or empty arrays.',
+    posexplode_outer_struct: 'Explode an array of structs into columns with item positions while preserving null or empty arrays.'
+  },
+  'flattenNested.recursiveExplodeMode': {
+    explode: 'Discard a row when the array at an explode step is null or empty.',
+    explode_outer: 'Preserve a row with a null item when the array at an explode step is null or empty.'
+  },
+  'window.direction': { desc: 'Order the newest or largest values first inside each partition.', asc: 'Order the oldest or smallest values first inside each partition.' },
+  'deltaInspect.action': { history: 'Return recent commits, operations, users, timestamps, and version numbers.', detail: 'Return table metadata such as format, location, size, properties, and partition columns.' },
+  'deltaCompare.comparison': { except: 'Return distinct rows present in the earlier version but absent from the later version.', exceptAll: 'Return differences while preserving duplicate row counts.' },
+  '*.targetKind': { table: 'Address the Delta target by its Unity Catalog name: catalog.schema.table.', path: 'Address the Delta target by its storage location, such as a /Volumes or cloud path.' }
+};
+
+function dropdownOptionHelp(operationId, fieldKey) {
+  return dropdownHelp[`${operationId}.${fieldKey}`] || dropdownHelp[`*.${fieldKey}`] || {};
+}
+
+function syncDropdownHelp(select) {
+  if (!select || select.tagName !== 'SELECT') return;
+  const help = dropdownOptionHelp(select.dataset.op, select.dataset.key)[select.value] || '';
+  select.title = help;
+  const hint = select.parentElement.querySelector('[data-select-help]');
+  if (hint) hint.textContent = help;
+}
+
+function renderTransformations() {
+  list.innerHTML = transformations.map(transformationCardMarkup).join('');
   applyCategory();
 }
 
@@ -585,6 +683,7 @@ function escapeHtml(value) {
 }
 
 function getValue(op, key) {
+  if (sourceSchemaState.generating && sourceSchemaState.cleanedValues?.has(`${op}.${key}`)) return sourceSchemaState.cleanedValues.get(`${op}.${key}`);
   const field = document.querySelector(`[data-op="${op}"][data-key="${key}"]`);
   return field ? field.value.trim() : '';
 }
@@ -593,12 +692,92 @@ function csvList(value) {
   return value.split(',').map(part => part.trim()).filter(Boolean);
 }
 
+function nestedStructPath(value) {
+  return String(value || '').split('.').map(part => part.trim()).filter(Boolean);
+}
+
+function nestedStructsAfterTarget(value, target) {
+  const path = nestedStructPath(value);
+  return path[0] === target ? path.slice(1) : path;
+}
+
+function flattenPlanLines(value) {
+  return String(value || '').split(/\r?\n/).map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    const separator = trimmed.indexOf('->');
+    const source = (separator < 0 ? trimmed : trimmed.slice(0, separator)).trim();
+    const target = (separator < 0 ? source.split('.').pop() : trimmed.slice(separator + 2)).trim();
+    return source && target ? [source, target] : null;
+  }).filter(Boolean);
+}
+
+function replaceFlattenPathRoots(value, replacements) {
+  return String(value || '').split(/(\r?\n)/).map(part => {
+    if (/^\r?\n$/.test(part)) return part;
+    const separator = part.indexOf('->');
+    const pathPart = separator < 0 ? part : part.slice(0, separator);
+    const suffix = separator < 0 ? '' : part.slice(separator);
+    let updatedPath = pathPart;
+    replacements.forEach(([before, after]) => {
+      if (!before || !after || before === after) return;
+      const pattern = new RegExp(`^(\\s*)${before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\.|\\s*$)`);
+      updatedPath = updatedPath.replace(pattern, `$1${after}`);
+    });
+    return updatedPath + suffix;
+  }).join('');
+}
+
+function syncFlattenPlanAliases(field) {
+  if (field.dataset.op !== 'flattenNested' || field.dataset.key !== 'explodeSteps') return;
+  const previousValue = field.dataset.previousPlan ?? field.defaultValue;
+  const previousSteps = flattenPlanLines(previousValue);
+  const nextSteps = flattenPlanLines(field.value);
+  const replacements = [];
+  previousSteps.forEach(([previousSource, previousTarget], index) => {
+    const next = nextSteps[index];
+    if (next && next[0] === previousSource && next[1] !== previousTarget) replacements.push([previousTarget, next[1]]);
+  });
+  if (replacements.length) {
+    field.value = replaceFlattenPathRoots(field.value, replacements);
+    const selectFields = document.querySelector('[data-op="flattenNested"][data-key="selectFields"]');
+    if (selectFields) selectFields.value = replaceFlattenPathRoots(selectFields.value, replacements);
+  }
+  field.dataset.previousPlan = field.value;
+}
+
 function pyString(value) {
   return JSON.stringify(value);
 }
 
 function pyList(values) {
   return `[${values.map(pyString).join(', ')}]`;
+}
+
+// Batch independent arithmetic projections without moving dependent expressions.
+function optimizedColumnMappings(pairs) {
+  const output = [];
+  let batch = [];
+  const flush = () => {
+    if (!batch.length) return;
+    output.push(batch.length === 1
+      ? `.withColumn(${pyString(batch[0][0])}, F.expr(${pyString(batch[0][1])}))`
+      : `.withColumns({${batch.map(([name, sql]) => `${pyString(name)}: F.expr(${pyString(sql)})`).join(', ')}})`);
+    batch = [];
+  };
+  for (const pair of pairs) {
+    const [name, sql] = pair;
+    // Functions, literals, casts, and complex SQL stay sequential. This includes
+    // random generators and expressions whose dependencies cannot be established.
+    const simple = /^[A-Za-z0-9_\s.+*/%()-]+$/.test(sql) && !/[A-Za-z_]\w*\s*\(/.test(sql);
+    const references = sql.match(/[A-Za-z_]\w*/g) || [];
+    const normalize = value => sourceSchemaState.caseSensitive ? value : value.toLowerCase();
+    if (!simple) { flush(); output.push(`.withColumn(${pyString(name)}, F.expr(${pyString(sql)}))`); continue; }
+    if (batch.some(([target]) => normalize(target) === normalize(name) || references.some(ref => normalize(ref) === normalize(target)))) flush();
+    batch.push(pair);
+  }
+  flush();
+  return output;
 }
 
 function parseMappings(value) {
@@ -718,7 +897,7 @@ function syncBuilderFromEditedCode(code) {
 
     if (item.id === 'createColumns' || item.id === 'dates') {
       const mappings = [];
-      const expressionPattern = /\.withColumn\(\s*("(?:\\.|[^"\\])*")\s*,\s*F\.expr\(\s*("(?:\\.|[^"\\])*")\s*\)\s*\)/g;
+      const expressionPattern = /(?:\.withColumn\(\s*|[{,]\s*)("(?:\\.|[^"\\])*")\s*(?:,|:)\s*F\.expr\(\s*("(?:\\.|[^"\\])*")\s*\)/g;
       for (const match of section.matchAll(expressionPattern)) {
         const target = decodeCodeString(match[1]);
         const expression = decodeCodeString(match[2]);
@@ -817,7 +996,7 @@ function addTransformationCode(item, frame, lines, stepNumber) {
   if (item.id === 'createFrameFromSchema') {
     addCreateFrameFromSchema(item, frame, lines);
   } else if (item.id === 'selectColumns') {
-    const names = columns('columns');
+    const names = validSelectionColumns(item, columns('columns'));
     const start = value('startIndex');
     const end = value('endIndex');
     if (value('mode') === 'range' && /^\d+$/.test(start) && /^\d+$/.test(end) && Number(end) > Number(start)) {
@@ -827,7 +1006,7 @@ function addTransformationCode(item, frame, lines, stepNumber) {
     } else todo(value('mode') === 'range' ? 'Enter a valid column position range' : 'Add columns to select');
   } else if (item.id === 'createColumns') {
     const expressions = mappings('mappings');
-    if (expressions.length) for (const [name, expression] of expressions) lines.push(`${frame} = ${frame}.withColumn(${pyString(name)}, F.expr(${pyString(expression)}))`);
+    if (expressions.length) optimizedColumnMappings(expressions).forEach(expression => lines.push(`${frame} = ${frame}${expression}`));
     else todo('Add output column : SQL expression mappings');
   } else if (item.id === 'conditional') {
     addClassification(item, frame, lines);
@@ -882,8 +1061,9 @@ function addTransformationCode(item, frame, lines, stepNumber) {
     const timestamp = value('timestamp');
     if (!keys.length || !timestamp) todo('Add key and timestamp columns to keep the latest record');
     else {
+      lines.push(`_lakeloom_column_names = set(${frame}.columns)`);
       lines.push('_rank_col = "__lakeloom_dedup_rank"');
-      lines.push(`while _rank_col in ${frame}.columns:`);
+      lines.push('while _rank_col in _lakeloom_column_names:');
       lines.push('    _rank_col += "_"');
       lines.push(`_dedup_window = Window.partitionBy(*[F.col(c) for c in ${pyList(keys)}]).orderBy(F.col(${pyString(timestamp)}).desc())`);
       lines.push(`${frame} = ${frame}.withColumn(_rank_col, F.row_number().over(_dedup_window)).filter(F.col(_rank_col) == 1).drop(_rank_col)`);
@@ -918,7 +1098,7 @@ function addTransformationCode(item, frame, lines, stepNumber) {
     else todo('Enter valid decimal places for rounding');
   } else if (item.id === 'dates') {
     const expressions = mappings('mappings');
-    if (expressions.length) for (const [name, expression] of expressions) lines.push(`${frame} = ${frame}.withColumn(${pyString(name)}, F.expr(${pyString(expression)}))`);
+    if (expressions.length) optimizedColumnMappings(expressions).forEach(expression => lines.push(`${frame} = ${frame}${expression}`));
     else todo('Add date output column : SQL expression mappings');
   } else if (item.kind === 'date') {
     addDateFunction(item, frame, lines);
@@ -947,12 +1127,33 @@ function addTransformationCode(item, frame, lines, stepNumber) {
     const mode = value('mode') || 'struct';
     const target = value('target');
     const position = value('position') || 'position';
-    if (!source) todo('Set the nested struct or array column');
+    const nestedStructs = nestedStructsAfterTarget(value('nestedStructs'), target);
+    if (mode === 'recursive') {
+      const explodeSteps = flattenPlanLines(value('explodeSteps'));
+      const selectFields = flattenPlanLines(value('selectFields'));
+      const generator = value('recursiveExplodeMode') === 'explode_outer' ? 'explode_outer' : 'explode';
+      if (!explodeSteps.length || !selectFields.length) todo('Add at least one array explode step and one output field');
+      else {
+        lines.push(`${frame} = (`);
+        lines.push(`    ${frame}`);
+        explodeSteps.forEach(([path, output]) => lines.push(`    .withColumn(${pyString(output)}, F.${generator}(F.col(${pyString(path)})))`));
+        lines.push('    .select(');
+        selectFields.forEach(([path, output], index) => {
+          const expression = path === output ? `F.col(${pyString(path)})` : `F.col(${pyString(path)}).alias(${pyString(output)})`;
+          lines.push(`        ${expression}${index < selectFields.length - 1 ? ',' : ''}`);
+        });
+        lines.push('    )');
+        lines.push(')');
+      }
+    } else if (!source) todo('Set the nested struct or array column');
     else if (mode === 'struct') {
+      const path = nestedStructPath(source);
       lines.push(`${frame} = (`);
       lines.push(`    ${frame}`);
-      lines.push(`    .select("*", F.col(${pyString(`${source}.*`)}))`);
-      lines.push(`    .drop(${pyString(source)})`);
+      path.forEach(level => {
+        lines.push(`    .select("*", F.col(${pyString(`${level}.*`)}))`);
+        lines.push(`    .drop(${pyString(level)})`);
+      });
       lines.push(')');
     } else {
       const flattenArrayStruct = mode.endsWith('_struct');
@@ -965,9 +1166,13 @@ function addTransformationCode(item, frame, lines, stepNumber) {
         lines.push(`${frame} = (`);
         lines.push(`    ${frame}`);
         lines.push(`    .select("*", F.${generator}(F.col(${pyString(source)})).alias(${aliases}))`);
-        if (flattenArrayStruct) {
+        if (flattenArrayStruct || nestedStructs.length) {
           lines.push(`    .select("*", F.col(${pyString(`${target}.*`)}))`);
           lines.push(`    .drop(${pyString(source)}, ${pyString(target)})`);
+          nestedStructs.forEach(level => {
+            lines.push(`    .select("*", F.col(${pyString(`${level}.*`)}))`);
+            lines.push(`    .drop(${pyString(level)})`);
+          });
         } else {
           lines.push(`    .drop(${pyString(source)})`);
         }
@@ -1425,7 +1630,7 @@ function chainOperation(item, frame) {
   const col = name => `F.col(${pyString(name)})`;
 
   if (item.id === 'selectColumns') {
-    const names = columns('columns');
+    const names = validSelectionColumns(item, columns('columns'));
     const start = value('startIndex');
     const end = value('endIndex');
     if (value('mode') === 'range') {
@@ -1472,7 +1677,7 @@ function chainOperation(item, frame) {
   }
   if (item.id === 'createColumns') {
     const pairs = mappings('mappings');
-    return pairs.length ? pairs.map(([name, expression]) => `.withColumn(${pyString(name)}, F.expr(${pyString(expression)}))`).join('\n') : null;
+    return pairs.length ? optimizedColumnMappings(pairs).join('\n') : null;
   }
   if (item.id === 'nulls') {
     const strategy = value('strategy');
@@ -1504,8 +1709,22 @@ function chainOperation(item, frame) {
     const mode = value('mode') || 'struct';
     const target = value('target');
     const position = value('position') || 'position';
+    const nestedStructs = nestedStructsAfterTarget(value('nestedStructs'), target);
+    if (mode === 'recursive') {
+      const explodeSteps = flattenPlanLines(value('explodeSteps'));
+      const selectFields = flattenPlanLines(value('selectFields'));
+      const generator = value('recursiveExplodeMode') === 'explode_outer' ? 'explode_outer' : 'explode';
+      if (!explodeSteps.length || !selectFields.length) return null;
+      const explosions = explodeSteps.map(([path, output]) => `.withColumn(${pyString(output)}, F.${generator}(F.col(${pyString(path)})))`);
+      const selections = selectFields.map(([path, output]) => path === output
+        ? `    F.col(${pyString(path)})`
+        : `    F.col(${pyString(path)}).alias(${pyString(output)})`);
+      return [...explosions, `.select(\n${selections.join(',\n')}\n)`].join('\n');
+    }
     if (!source) return null;
-    if (mode === 'struct') return `.select("*", ${pyString(`${source}.*`)})\n.drop(${pyString(source)})`;
+    if (mode === 'struct') return nestedStructPath(source)
+      .flatMap(level => [`.select("*", F.col(${pyString(`${level}.*`)}))`, `.drop(${pyString(level)})`])
+      .join('\n');
     if (!target || target === source) return null;
     const flattenArrayStruct = mode.endsWith('_struct');
     const generator = mode.replace(/_struct$/, '');
@@ -1513,7 +1732,9 @@ function chainOperation(item, frame) {
     if (!['explode', 'explode_outer', 'posexplode', 'posexplode_outer'].includes(generator)) return null;
     if (hasPosition && (!position || position === source || position === target)) return null;
     const aliases = hasPosition ? `${pyString(position)}, ${pyString(target)}` : pyString(target);
-    const flattened = flattenArrayStruct ? `.select("*", ${pyString(`${target}.*`)}).drop(${pyString(source)}, ${pyString(target)})` : `.drop(${pyString(source)})`;
+    const flattened = flattenArrayStruct || nestedStructs.length
+      ? [`.select("*", F.col(${pyString(`${target}.*`)}))`, `.drop(${pyString(source)}, ${pyString(target)})`, ...nestedStructs.flatMap(level => [`.select("*", F.col(${pyString(`${level}.*`)}))`, `.drop(${pyString(level)})`])].join('\n')
+      : `.drop(${pyString(source)})`;
     return `.select("*", F.${generator}(${col(source)}).alias(${aliases}))${flattened.replace(/^\./, '\n.')}`;
   }
   if (item.id === 'standardizeNames') {
@@ -1524,7 +1745,7 @@ function chainOperation(item, frame) {
   }
   if (item.id === 'dates') {
     const pairs = mappings('mappings');
-    return pairs.length ? pairs.map(([name, expression]) => `.withColumn(${pyString(name)}, F.expr(${pyString(expression)}))`).join('\n') : null;
+    return pairs.length ? optimizedColumnMappings(pairs).join('\n') : null;
   }
   if (item.id === 'aggregate') {
     const groups = columns('groups');
@@ -1698,8 +1919,27 @@ function addOutputCode(frame, lines) {
 }
 
 function makeCode() {
+  sourceSchemaState.generating = true;
+  try { return makeValidatedCode(); }
+  finally { sourceSchemaState.generating = false; }
+}
+
+function makeValidatedCode() {
   const frameNameInput = document.getElementById('dataframeName').value.trim();
-  const frame = /^[A-Za-z_][A-Za-z0-9_]*$/.test(frameNameInput) ? frameNameInput : 'df';
+  let frame = /^[A-Za-z_][A-Za-z0-9_]*$/.test(frameNameInput) ? frameNameInput : 'df';
+  const completedFrames = [];
+  const usedFrameNames = new Set([frame]);
+  const startNewFrame = item => {
+    if (!isNewDataFrameStep(item)) return false;
+    const target = getValue(item.id, 'target');
+    if (!validNewFrameName(target, frame) || usedFrameNames.has(target)) return true;
+    usedFrameNames.add(target);
+    completedFrames.push(frame);
+    const base = getValue(item.id, 'base') === 'source' ? '_lakeloom_source_df' : frame;
+    lines.push(`# Continue subsequent transformations in ${target}`, `${target} = ${base}`, '', '# COMMAND ----------');
+    frame = target;
+    return true;
+  };
   const format = document.getElementById('sourceFormat').value;
   const source = document.getElementById('sourcePath').value.trim() || sourcePathExamples[format];
   const deltaVersion = document.getElementById('sourceDeltaVersion').value.trim();
@@ -1710,11 +1950,14 @@ function makeCode() {
     `# Notebook: ${getNotebookName().replace(/[\r\n\t]+/g, ' ')}`,
     'from pyspark.sql import functions as F'
   ];
-  // Set iteration order is the order the user checked transformations. Preserve it
-  // in the notebook so execution matches the sequence chosen in the builder.
-  const selected = [...state.selected]
+  // Keep transformation dependencies in selection order. Table actions consume
+  // the completed source pipeline and retain their relative order at the end.
+  const selectedInOrder = [...state.selected]
     .map(id => transformations.find(item => item.id === id))
-    .filter(Boolean);
+    .filter(item => item && !sourceSchemaState.omittedSteps?.has(item.id)
+      && !(item.id === 'filter' && !getValue('filter', 'condition')));
+  const isActionStep = item => item.id.startsWith('delta') || ['scd1', 'scd2'].includes(item.id);
+  const selected = [...selectedInOrder.filter(item => !isActionStep(item)), ...selectedInOrder.filter(isActionStep)];
   const sparkTypeImports = new Set();
   if (selected.some(item => item.id === 'trimAll')) sparkTypeImports.add('StringType');
   if (selected.some(item => item.id === 'createFrameFromSchema')) {
@@ -1757,6 +2000,9 @@ function makeCode() {
     if (format === 'csv') lines.push('reader = reader.option("header", "true").option("inferSchema", "true")');
     lines.push(`${frame} = reader.load(${pyString(source)})`);
   }
+  if (selected.some(item => isNewDataFrameStep(item) && getValue(item.id, 'base') === 'source')) {
+    lines.push(`# Preserve the original source before applying transformations`, `_lakeloom_source_df = ${frame}`);
+  }
   lines.push('', '# COMMAND ----------');
 
   if (document.getElementById('chainSelectedSteps').checked) {
@@ -1782,6 +2028,7 @@ function makeCode() {
       pending = [];
     };
     for (const [index, item] of selected.entries()) {
+      if (isNewDataFrameStep(item)) { flushChain(); startNewFrame(item); continue; }
       const expression = chainOperation(item, frame);
       if (expression) {
         pending.push({ item, expression, step: index + 1 });
@@ -1794,14 +2041,24 @@ function makeCode() {
     flushChain();
   } else {
     for (const [index, item] of selected.entries()) {
+      if (startNewFrame(item)) continue;
       addTransformationCode(item, frame, lines, index + 1);
       lines.push('', '# COMMAND ----------');
     }
   }
   addOutputCode(frame, lines);
   if (!document.getElementById('writeOutput').checked) lines.push('');
-  lines.push('# Continue with your next notebook step');
-  lines.push(`display(${frame})`);
+  // Displays are Spark actions too: defer every generated display until all
+  // DataFrame transformations, SCD checks/merges, and output writes are complete.
+  const finalDisplays = [];
+  for (let index = 0; index < lines.length; index++) {
+    if (/^display\([A-Za-z_]\w*\)$/.test(lines[index])) {
+      finalDisplays.push(lines[index]);
+      lines.splice(index--, 1);
+    }
+  }
+  lines.push('# COMMAND ----------', '# Final actions: display completed DataFrames');
+  lines.push(...new Set([...finalDisplays, ...completedFrames.map(name => `display(${name})`), `display(${frame})`]));
   return lines.join('\n');
 }
 
@@ -1985,11 +2242,11 @@ const exportFormatHints = {
 };
 
 function syncDownloadFormatHint() {
-  const format = document.getElementById('downloadFormat').value;
-  document.getElementById('downloadFormatHint').textContent = exportFormatHints[format];
+  document.getElementById('downloadFormatHint').textContent = 'Click Export notebook, then choose a download format. The download starts immediately.';
 }
 
 function updatePreview() {
+  refreshColumnValidation();
   const generatedCode = makeCode();
   const code = state.customCode === null ? generatedCode : state.customCode;
   codePreview.innerHTML = colorize(code);
@@ -2000,6 +2257,7 @@ function updatePreview() {
   const editButton = document.getElementById('editCode');
   editButton.textContent = state.editingCode ? 'Preview' : 'Edit code';
   editButton.setAttribute('aria-pressed', String(state.editingCode));
+  document.querySelector('.ready-indicator').innerHTML = '<i></i> Code ready';
   document.getElementById('resetCode').disabled = state.customCode === null;
   const count = state.selected.size;
   const countLabel = `${count} ${count === 1 ? 'step' : 'steps'} selected`;
@@ -2019,6 +2277,7 @@ function updatePreview() {
     status.classList.remove('is-error');
   }
   applyCategory();
+  updateSchemaAvailability();
 }
 
 function syncCard(id) {
@@ -2032,10 +2291,12 @@ function syncCard(id) {
     const values = field.dataset.whenValues ? field.dataset.whenValues.split('|') : [field.dataset.whenValue];
     field.hidden = !control || !values.includes(control.value);
   });
+  card.querySelectorAll('select[data-op]').forEach(syncDropdownHelp);
 }
 
 function applyCategory() {
   const query = document.getElementById('operationSearch').value.trim().toLowerCase();
+  document.getElementById('backToAllTransformations').hidden = state.category === 'all' && !query;
   let shown = 0;
   document.querySelectorAll('.transform-card').forEach(card => {
     const item = transformations.find(operation => operation.id === card.dataset.card);
@@ -2093,6 +2354,19 @@ function saveCurrentRecipe(name) {
   showToast(`Saved “${name}”`);
 }
 
+function ensureNewDataFrameSteps(selectedIds, savedFields = []) {
+  let added = false;
+  for (const id of selectedIds) {
+    if (!isNewDataFrameStep(id) || id === 'newDataFrame' || transformations.some(item => item.id === id)) continue;
+    const savedTarget = savedFields.find(field => field.op === id && field.key === 'target')?.value;
+    const item = createNewDataFrameStep(id, typeof savedTarget === 'string' && savedTarget ? savedTarget : nextNewDataFrameName());
+    transformations.push(item);
+    list.insertAdjacentHTML('beforeend', transformationCardMarkup(item));
+    added = true;
+  }
+  if (added) renderCategories();
+}
+
 function openRecipeDialog() {
   document.getElementById('recipeName').value = getNotebookName();
   openModal('recipeModal', 'recipeName');
@@ -2101,6 +2375,7 @@ function openRecipeDialog() {
 function useRecipe(recipeId) {
   const recipe = readLocalList(recipeStorageKey).find(item => item.id === recipeId);
   if (!recipe) return showToast('That saved recipe could not be found');
+  invalidateSourceSchema();
   notebookNameInput.value = recipe.notebookName || recipe.name || 'Untitled notebook';
   persistNotebookName();
   syncNotebookNameDisplay();
@@ -2109,12 +2384,17 @@ function useRecipe(recipeId) {
   document.getElementById('sourceDeltaVersion').value = recipe.sourceDeltaVersion || '';
   document.getElementById('dataframeName').value = recipe.dataframeName || 'df';
   state.uploads = [];
+  state.sourceMode = 'databricks';
+  state.activeSourceMode = 'databricks';
+  state.uploadSelectionKind = 'files';
   state.uploadedPathBase = null;
   state.uploadedPathFileName = null;
   document.getElementById('sourceFiles').value = '';
+  document.getElementById('sourceFolder').value = '';
   renderUploadedFiles();
   updateUploadMode();
 
+  ensureNewDataFrameSteps(recipe.selected || [], recipe.fields || []);
   state.selected = new Set(recipe.selected || []);
   for (const field of recipe.fields || []) {
     const control = document.getElementById(`${field.op}-${field.key}`);
@@ -2144,34 +2424,81 @@ function useRecipe(recipeId) {
   showToast(`Loaded “${recipe.name}”`);
 }
 
-const formatExtensions = {
-  csv: '.csv,text/csv',
-  json: '.json,.jsonl,.ndjson,application/json',
-  text: '.txt,.text,.log,text/plain',
-  parquet: '.parquet',
-  avro: '.avro',
-  orc: '.orc'
-};
 const folderFormats = new Set(['delta', 'iceberg']);
+const extensionFormats = [
+  [/\.csv$/i, 'csv'],
+  [/\.(?:json|jsonl|ndjson)$/i, 'json'],
+  [/\.(?:txt|text|log)$/i, 'text'],
+  [/\.parquet$/i, 'parquet'],
+  [/\.avro$/i, 'avro'],
+  [/\.orc$/i, 'orc']
+];
+
+function formatFromFileName(name) {
+  return extensionFormats.find(([pattern]) => pattern.test(name))?.[1] || null;
+}
+
+function detectSourceFormat(files, selectionKind = 'files') {
+  const paths = files.map(file => file.webkitRelativePath || file.name);
+  if (selectionKind === 'folder') {
+    if (paths.some(path => /(?:^|\/)\_delta_log\/(?:\d+\.json|_last_checkpoint)$/i.test(path))) return 'delta';
+    if (paths.some(path => /(?:^|\/)metadata\/.*\.metadata\.json$/i.test(path))) return 'iceberg';
+  }
+  const detected = new Set(files.map(file => formatFromFileName(file.name)).filter(Boolean));
+  return detected.size === 1 ? [...detected][0] : null;
+}
+
+function setSourceMode(mode) {
+  if (!['files', 'folder', 'databricks'].includes(mode) || mode === state.sourceMode) return;
+  state.sourceMode = mode;
+  renderUploadedFiles();
+  updateUploadMode();
+}
 
 function updateUploadMode() {
   const format = document.getElementById('sourceFormat').value;
+  const mode = state.sourceMode;
+  const localMode = mode !== 'databricks';
+  const hasFiles = localMode && state.activeSourceMode === mode && state.uploads.length > 0;
   const pathInput = document.getElementById('sourcePath');
   if (pathInput.value === sourcePathExamples[activeSuggestedFormat]) pathInput.value = sourcePathExamples[format];
   activeSuggestedFormat = format;
   const isFolder = folderFormats.has(format);
-  const input = document.getElementById('sourceFiles');
-  input.accept = isFolder ? '' : formatExtensions[format];
-  input.multiple = true;
-  input.toggleAttribute('webkitdirectory', isFolder);
-  input.webkitdirectory = isFolder;
-  document.getElementById('uploadTitle').textContent = isFolder
-    ? `Choose ${format === 'delta' ? 'a Delta' : 'an Iceberg'} table folder`
-    : 'Choose source files';
-  document.getElementById('uploadDescription').textContent = isFolder
-    ? `Select the table directory${format === 'delta' ? ' containing _delta_log' : ' containing Iceberg metadata'}`
-    : `${format.toUpperCase()} files · select one or more`;
-  document.getElementById('uploadButton').textContent = isFolder ? 'Browse folders' : 'Browse files';
+  document.querySelectorAll('[data-source-mode]').forEach(button => {
+    const active = button.dataset.sourceMode === mode;
+    const selected = button.dataset.sourceMode === state.activeSourceMode
+      && (button.dataset.sourceMode === 'databricks' || state.uploads.length > 0);
+    button.classList.toggle('is-active', active);
+    button.classList.toggle('has-source', selected);
+    button.setAttribute('aria-pressed', String(active));
+    const status = button.querySelector('.source-method-status');
+    status.hidden = !selected;
+    if (selected) status.textContent = button.dataset.sourceMode === 'files'
+      ? `✓ ${state.uploads.length === 1 ? 'File selected' : `${state.uploads.length} files selected`}`
+      : button.dataset.sourceMode === 'folder' ? '✓ Folder selected' : '✓ Databricks selected';
+  });
+  document.querySelector('.source-fields').hidden = localMode && !hasFiles;
+  document.getElementById('sourceFormatField').hidden = localMode && !hasFiles;
+  document.getElementById('sourceFormatLabel').innerHTML = mode === 'databricks'
+    ? 'Source format'
+    : `${mode === 'folder' ? 'Table' : 'File'} format <small>(detected automatically)</small>`;
+  pathInput.closest('.field').hidden = localMode && !hasFiles;
+  document.getElementById('uploadZone').hidden = !localMode;
+  document.getElementById('uploadFootnote').hidden = !localMode;
+  document.getElementById('uploadButton').hidden = mode !== 'files';
+  document.getElementById('uploadFolderButton').hidden = mode !== 'folder';
+  document.getElementById('loadSourceSchema').hidden = !localMode || !hasFiles;
+  document.getElementById('loadSourceSchema').textContent = 'Reinspect source';
+  document.getElementById('loadRemoteSchema').hidden = mode !== 'databricks';
+  document.querySelector('.schema-toolbar').hidden = localMode && !hasFiles;
+  document.getElementById('sourceSchemaStatus').hidden = localMode && !hasFiles;
+  document.getElementById('sourceSchemaPanel').hidden = state.activeSourceMode !== mode || !sourceSchemaState.columns;
+  document.getElementById('uploadTitle').textContent = hasFiles
+    ? `${format === 'text' ? 'TXT' : format.toUpperCase()} source detected`
+    : (mode === 'folder' ? 'Choose a table folder' : 'Choose one or more files');
+  document.getElementById('uploadDescription').textContent = hasFiles
+    ? 'Change the detected format above only when the file extension is misleading'
+    : (mode === 'folder' ? 'LakeLoom detects Delta or Iceberg from folder metadata' : 'LakeLoom detects the format from the selected files');
   document.getElementById('sourcePathLabel').textContent = isFolder
     ? 'Databricks table name or table path'
     : 'Databricks storage path';
@@ -2179,7 +2506,7 @@ function updateUploadMode() {
   const versionInput = document.getElementById('sourceDeltaVersion');
   const isDelta = format === 'delta';
   const supportsVersionOption = isDelta || format === 'parquet';
-  versionField.hidden = !supportsVersionOption;
+  versionField.hidden = !supportsVersionOption || (localMode && !hasFiles);
   document.getElementById('sourceVersionLabel').innerHTML = isDelta
     ? 'Delta version as of <small>(optional)</small>'
     : 'Parquet snapshot reference <small>(optional)</small>';
@@ -2187,7 +2514,7 @@ function updateUploadMode() {
   document.getElementById('sourceVersionHint').textContent = isDelta
     ? 'Read a historical Delta table snapshot, such as version 2.'
     : 'Parquet has no built-in version history; this reference will not change the read.';
-  document.getElementById('uploadZone').classList.toggle('folder-mode', isFolder);
+  document.getElementById('uploadZone').classList.toggle('folder-mode', state.uploadSelectionKind === 'folder');
   updateSourceSummary();
 }
 
@@ -2239,9 +2566,10 @@ function formatBytes(bytes) {
 function renderUploadedFiles() {
   const panel = document.getElementById('selectedFiles');
   const list = document.getElementById('selectedFilesList');
-  panel.hidden = !state.uploads.length;
+  const showingActiveSource = state.sourceMode === state.activeSourceMode;
+  panel.hidden = !state.uploads.length || !showingActiveSource;
   updateSourceSummary();
-  if (!state.uploads.length) {
+  if (!state.uploads.length || !showingActiveSource) {
     list.innerHTML = '';
     return;
   }
@@ -2260,10 +2588,17 @@ function updateSourceSummary() {
   const summary = document.getElementById('sourceSummary');
   if (!summary) return;
   const format = document.getElementById('sourceFormat').value;
-  const count = state.uploads.length;
+  const count = state.sourceMode === state.activeSourceMode ? state.uploads.length : 0;
   document.getElementById('source-heading').textContent = count ? 'Source selected' : 'Add your source';
   if (!count) {
-    summary.textContent = 'Select local files, then set the matching Databricks path your notebook will read.';
+    const preserved = state.uploads.length && state.activeSourceMode !== state.sourceMode
+      ? ` Your current ${state.activeSourceMode === 'folder' ? 'table folder' : 'file'} source is preserved until you choose a replacement.`
+      : '';
+    summary.textContent = (state.sourceMode === 'databricks'
+      ? 'Enter a Databricks catalog table or storage path.'
+      : state.sourceMode === 'folder'
+        ? 'Choose a Delta or Iceberg table folder; LakeLoom will detect its format.'
+        : 'Choose local files; LakeLoom will detect their format automatically.') + preserved;
     summary.classList.remove('has-upload');
     return;
   }
@@ -2283,9 +2618,22 @@ function updateSourceSummary() {
     : `${count} ${formatName} files selected, including ${firstName}. Make sure they are available at the Databricks path below.`;
 }
 
-function setUploadedFiles(fileList) {
-  const format = document.getElementById('sourceFormat').value;
+function setUploadedFiles(fileList, selectionKind = 'files') {
   const files = Array.from(fileList || []);
+  if (!files.length) return;
+  const format = detectSourceFormat(files, selectionKind);
+  if (!format) {
+    showToast(selectionKind === 'folder'
+      ? 'Could not detect one format. Choose a Delta/Iceberg folder or files with one supported extension.'
+      : 'Choose files with the same supported extension.');
+    return;
+  }
+  invalidateSourceSchema();
+  state.sourceMode = selectionKind;
+  state.activeSourceMode = selectionKind;
+  state.uploadSelectionKind = selectionKind;
+  document.getElementById('sourceFormat').value = format;
+  updateUploadMode();
   const sourcePathBase = sourcePathBaseForUpload(format);
   if (!folderFormats.has(format)) {
     const extension = {
@@ -2297,7 +2645,7 @@ function setUploadedFiles(fileList) {
       orc: /\.orc$/i
     }[format];
     const accepted = files.filter(file => extension.test(file.name));
-    if (accepted.length !== files.length) showToast(`Choose ${format.toUpperCase()} files for this source format`);
+    if (accepted.length !== files.length) showToast(`Detected ${format.toUpperCase()}; unsupported companion files were skipped`);
     state.uploads = accepted;
     if (accepted.length === 1) {
       state.uploadedPathBase = sourcePathBase;
@@ -2314,7 +2662,9 @@ function setUploadedFiles(fileList) {
     state.uploadedPathFileName = null;
   }
   renderUploadedFiles();
+  updateUploadMode();
   updatePreview();
+  if (state.uploads.length) loadSourceSchema(false);
 }
 
 function joinSourcePath(directory, fileName) {
@@ -2362,6 +2712,7 @@ updateUploadMode();
 syncOutputSettings();
 syncDownloadFormatHint();
 updatePreview();
+initSourceSchema();
 loadDatabricksSession();
 setView(location.hash.replace(/^#/, '') || 'builder');
 
@@ -2385,7 +2736,10 @@ list.addEventListener('change', event => {
 });
 
 list.addEventListener('input', event => {
-  if (event.target.matches('[data-op]')) updatePreview();
+  if (event.target.matches('[data-op]')) {
+    syncFlattenPlanAliases(event.target);
+    updatePreview();
+  }
 });
 
 document.getElementById('categorySelect').addEventListener('change', event => {
@@ -2401,6 +2755,39 @@ document.getElementById('clearSelection').addEventListener('click', () => {
   updatePreview();
 });
 
+document.getElementById('backToAllTransformations').addEventListener('click', () => {
+  state.category = 'all';
+  document.getElementById('operationSearch').value = '';
+  renderCategories();
+  applyCategory();
+  document.getElementById('categorySelect').focus({ preventScroll: true });
+});
+
+document.getElementById('addNewDataFrame').addEventListener('click', () => {
+  const hasSelectedBoundary = [...state.selected].some(isNewDataFrameStep);
+  let id = 'newDataFrame';
+  if (hasSelectedBoundary) {
+    const item = createNewDataFrameStep(nextNewDataFrameId(), nextNewDataFrameName());
+    transformations.push(item);
+    list.insertAdjacentHTML('beforeend', transformationCardMarkup(item));
+    id = item.id;
+  }
+  state.selected.add(id);
+  state.category = 'dataframe';
+  document.getElementById('operationSearch').value = '';
+  renderCategories();
+  applyCategory();
+  syncCard(id);
+  updatePreview();
+  const field = document.getElementById(`${id}-target`);
+  field.closest('.transform-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  field.focus({ preventScroll: true });
+  field.select();
+  showToast(hasSelectedBoundary
+    ? 'Added another DataFrame step. Select the next transformations to continue in it.'
+    : 'DataFrame step added after your selected steps. Select the next transformations to continue in it.');
+});
+
 notebookNameInput.addEventListener('input', () => {
   persistNotebookName();
   syncNotebookNameDisplay();
@@ -2414,18 +2801,22 @@ notebookNameInput.addEventListener('blur', () => {
 });
 
 document.getElementById('sourcePath').addEventListener('input', () => {
+  invalidateSourceSchema();
   state.uploadedPathBase = null;
   state.uploadedPathFileName = null;
   updatePreview();
 });
-['dataframeName', 'sourceDeltaVersion'].forEach(id => document.getElementById(id).addEventListener('input', updatePreview));
+document.getElementById('dataframeName').addEventListener('input', updatePreview);
+document.getElementById('sourceDeltaVersion').addEventListener('input', () => {
+  invalidateSourceSchema();
+  updatePreview();
+});
 document.getElementById('sourceFormat').addEventListener('change', () => {
-  restoreUploadedPathBase();
-  state.uploads = [];
-  document.getElementById('sourceFiles').value = '';
+  invalidateSourceSchema();
   renderUploadedFiles();
   updateUploadMode();
   updatePreview();
+  if (state.uploads.length) loadSourceSchema(false);
 });
 
 document.getElementById('writeOutput').addEventListener('change', () => {
@@ -2458,6 +2849,16 @@ document.querySelectorAll('[data-go-view]').forEach(control => control.addEventL
   location.hash = view;
   setView(view);
 }));
+document.querySelector('[data-copy-doc-code]')?.addEventListener('click', async event => {
+  const code = document.getElementById('docsFlattenCode')?.textContent || '';
+  try {
+    await navigator.clipboard.writeText(code);
+    event.currentTarget.textContent = 'Copied';
+    window.setTimeout(() => { event.currentTarget.textContent = 'Copy example'; }, 1400);
+  } catch {
+    showToast('Copy is unavailable in this browser.');
+  }
+});
 window.addEventListener('hashchange', () => setView(location.hash.replace(/^#/, '') || 'builder'));
 
 document.getElementById('authButton').addEventListener('click', () => {
@@ -2510,12 +2911,20 @@ document.getElementById('clearHistory').addEventListener('click', () => {
   showToast('Local activity history cleared');
 });
 
-document.getElementById('sourceFiles').addEventListener('change', event => setUploadedFiles(event.target.files));
+document.querySelectorAll('[data-source-mode]').forEach(button => {
+  button.addEventListener('click', () => setSourceMode(button.dataset.sourceMode));
+});
+document.getElementById('sourceFiles').addEventListener('change', event => setUploadedFiles(event.target.files, 'files'));
+document.getElementById('sourceFolder').addEventListener('change', event => setUploadedFiles(event.target.files, 'folder'));
 document.getElementById('clearFiles').addEventListener('click', () => {
+  invalidateSourceSchema();
   restoreUploadedPathBase();
   state.uploads = [];
+  state.uploadSelectionKind = 'files';
   document.getElementById('sourceFiles').value = '';
+  document.getElementById('sourceFolder').value = '';
   renderUploadedFiles();
+  updateUploadMode();
   updatePreview();
 });
 
@@ -2528,11 +2937,7 @@ uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag
 uploadZone.addEventListener('drop', event => {
   event.preventDefault();
   uploadZone.classList.remove('drag-over');
-  if (folderFormats.has(document.getElementById('sourceFormat').value)) {
-    showToast('Use Browse folders to select a Delta or Iceberg table folder');
-    return;
-  }
-  setUploadedFiles(event.dataTransfer.files);
+  setUploadedFiles(event.dataTransfer.files, 'files');
 });
 
 document.getElementById('copyCode').addEventListener('click', async () => {
@@ -2554,8 +2959,7 @@ document.getElementById('copyCode').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('downloadCode').addEventListener('click', () => {
-  const format = document.getElementById('downloadFormat').value;
+function exportNotebook(format) {
   const code = currentNotebookCode();
   const filenameBase = getNotebookFilenameBase();
   const notebookName = getNotebookName();
@@ -2588,9 +2992,43 @@ document.getElementById('downloadCode').addEventListener('click', () => {
   const exportLabel = format === 'pdf' ? 'PDF print view' : exports[format].label;
   addActivity('Notebook exported', `${exportLabel} · ${state.selected.size} transformation${state.selected.size === 1 ? '' : 's'} selected${output}`);
   showToast(format === 'pdf' ? 'Print view opened · choose Save as PDF' : `Exported ${exports[format].filename}`);
+}
+
+const downloadCodeButton = document.getElementById('downloadCode');
+const exportFormatMenu = document.getElementById('exportFormatMenu');
+
+function setExportMenuOpen(open) {
+  exportFormatMenu.hidden = !open;
+  downloadCodeButton.setAttribute('aria-expanded', String(open));
+  downloadCodeButton.querySelector('.button-arrow').textContent = open ? '⌃' : '⌄';
+}
+
+downloadCodeButton.addEventListener('click', event => {
+  event.stopPropagation();
+  setExportMenuOpen(exportFormatMenu.hidden);
+  if (!exportFormatMenu.hidden) exportFormatMenu.querySelector('[data-export-format]')?.focus();
 });
 
-document.getElementById('downloadFormat').addEventListener('change', syncDownloadFormatHint);
+exportFormatMenu.addEventListener('click', event => {
+  const option = event.target.closest('[data-export-format]');
+  if (!option) return;
+  const format = option.dataset.exportFormat;
+  document.getElementById('downloadFormat').value = format;
+  syncDownloadFormatHint();
+  setExportMenuOpen(false);
+  exportNotebook(format);
+});
+
+document.addEventListener('click', event => {
+  if (!event.target.closest('.export-menu-wrap')) setExportMenuOpen(false);
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !exportFormatMenu.hidden) {
+    setExportMenuOpen(false);
+    downloadCodeButton.focus();
+  }
+});
 document.getElementById('runPreview').addEventListener('click', runNotebookPreview);
 document.getElementById('clearRunResults').addEventListener('click', () => {
   document.getElementById('runResults').hidden = true;
@@ -2703,9 +3141,9 @@ function setSidebarCollapsed(collapsed) {
   sidebar.classList.toggle('is-collapsed', collapsed);
   sidebar.classList.toggle('is-mobile-expanded', isMobile && !collapsed);
   mainArea.classList.toggle('sidebar-collapsed', collapsed || isMobile);
+  mainArea.classList.toggle('sidebar-pane-collapsed', collapsed);
   sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
   sidebarToggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} sidebar`);
-  sidebarToggle.title = `${collapsed ? 'Expand' : 'Collapse'} sidebar`;
   sidebarBackdrop.hidden = !(isMobile && !collapsed);
 }
 

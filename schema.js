@@ -19,6 +19,90 @@ function invalidateSourceSchema() {
   updateSchemaAvailability();
 }
 
+function splitSchemaTypeParts(value, separator = ',') {
+  const parts = [];
+  let start = 0;
+  let angleDepth = 0;
+  let roundDepth = 0;
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (character === '<') angleDepth++;
+    else if (character === '>') angleDepth--;
+    else if (character === '(') roundDepth++;
+    else if (character === ')') roundDepth--;
+    else if (character === separator && angleDepth === 0 && roundDepth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function splitSchemaField(value) {
+  let depth = 0;
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] === '<' || value[index] === '(') depth++;
+    else if (value[index] === '>' || value[index] === ')') depth--;
+    else if (value[index] === ':' && depth === 0) return [value.slice(0, index).trim().replace(/^`|`$/g, ''), value.slice(index + 1).trim()];
+  }
+  return [value.trim(), 'string'];
+}
+
+function parseSchemaType(type) {
+  const source = String(type || '').trim();
+  const lower = source.toLowerCase();
+  if (lower.startsWith('array<') && source.endsWith('>')) return { kind: 'array', child: parseSchemaType(source.slice(6, -1)), raw: source };
+  if (lower.startsWith('struct<') && source.endsWith('>')) {
+    return {
+      kind: 'struct',
+      fields: splitSchemaTypeParts(source.slice(7, -1)).map(field => {
+        const [name, fieldType] = splitSchemaField(field);
+        return { name, type: parseSchemaType(fieldType) };
+      }),
+      raw: source
+    };
+  }
+  if (lower.startsWith('map<') && source.endsWith('>')) {
+    const [keyType = 'string', valueType = 'string'] = splitSchemaTypeParts(source.slice(4, -1));
+    return { kind: 'map', key: parseSchemaType(keyType), value: parseSchemaType(valueType), raw: source };
+  }
+  return { kind: 'primitive', raw: source };
+}
+
+function friendlySchemaType(node) {
+  if (node.kind === 'struct') return 'Object';
+  if (node.kind === 'array') return node.child.kind === 'struct' ? 'List of objects' : `List of ${friendlySchemaType(node.child).toLowerCase()} values`;
+  if (node.kind === 'map') return 'Key-value map';
+  const type = databricksTypeLabel(node.raw);
+  if (/^(STRING|CHAR|VARCHAR)/.test(type)) return 'Text';
+  if (/^(BIGINT|INT|INTEGER|SMALLINT|TINYINT|FLOAT|DOUBLE|DECIMAL)/.test(type)) return 'Number';
+  if (/^BOOLEAN/.test(type)) return 'True / false';
+  if (/^TIMESTAMP/.test(type)) return 'Date and time';
+  if (/^DATE/.test(type)) return 'Date';
+  return type;
+}
+
+function renderSchemaNode(node, name = '') {
+  const childRows = node.kind === 'struct'
+    ? node.fields.map(field => renderSchemaNode(field.type, field.name)).join('')
+    : node.kind === 'array' && (node.child.kind === 'struct' || node.child.kind === 'array' || node.child.kind === 'map')
+      ? renderSchemaNode(node.child, node.child.kind === 'struct' ? 'Each item contains' : 'Each item')
+      : node.kind === 'map'
+        ? `${renderSchemaNode(node.key, 'Key')}${renderSchemaNode(node.value, 'Value')}`
+        : '';
+  return `<li><div class="schema-tree-row">${name ? `<strong>${escapeHtml(name)}</strong>` : ''}<span>${escapeHtml(friendlySchemaType(node))}</span><code>${escapeHtml(databricksTypeLabel(node.raw))}</code></div>${childRows ? `<ul>${childRows}</ul>` : ''}</li>`;
+}
+
+function renderSchemaType(type) {
+  const node = parseSchemaType(type);
+  if (node.kind === 'primitive') return `<div class="schema-simple-type"><strong>${escapeHtml(friendlySchemaType(node))}</strong><code>${escapeHtml(databricksTypeLabel(node.raw))}</code></div>`;
+  const tree = node.kind === 'struct'
+    ? node.fields.map(field => renderSchemaNode(field.type, field.name)).join('')
+    : renderSchemaNode(node);
+  return `<div class="schema-type-summary"><strong>${escapeHtml(friendlySchemaType(node))}</strong><span>Nested data</span></div><ul class="schema-tree">${tree}</ul><details class="schema-raw-type"><summary>Show original Spark type</summary><code>${escapeHtml(databricksTypeLabel(type))}</code></details>`;
+}
+
 async function loadSourceSchema(remote = false) {
   const requestId = ++sourceSchemaState.requestId;
   sourceSchemaState.loading = true;
@@ -65,7 +149,7 @@ async function loadSourceSchema(remote = false) {
     sourceSchemaState.columns = result.columns;
     sourceSchemaState.caseSensitive = result.caseSensitive === true;
     updateUploadMode();
-    document.getElementById('sourceSchemaColumns').innerHTML = result.columns.map(column => `<tr><td>${escapeHtml(column.name)}</td><td>${escapeHtml(databricksTypeLabel(column.type))}</td></tr>`).join('');
+    document.getElementById('sourceSchemaColumns').innerHTML = result.columns.map(column => `<tr><td class="schema-column-name">${escapeHtml(column.name)}</td><td>${renderSchemaType(column.type)}</td></tr>`).join('');
     document.getElementById('sourceSchemaCount').textContent = `${result.columns.length} columns`;
     document.getElementById('sourceSchemaNote').textContent = result.inferred
       ? 'Types are inferred from up to 1,000 records per file. Load from Databricks to confirm the types used by Spark. Column checks follow your selected step order.'

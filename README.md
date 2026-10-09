@@ -17,7 +17,7 @@ python -m pip install -r requirements.txt
 
 Python 3.13 is incompatible with NumPy 1.26.4, which can be selected by this dependency stack. If installation reports a NumPy compiler or metadata-generation error, use the Python 3.11 environment above. Do not install standalone `pyspark` alongside `databricks-connect`; Databricks Connect provides the PySpark modules.
 
-Configure a Databricks Connect profile for serverless compute, then run `python app.py` and open `http://localhost:8000`:
+Configure a Databricks Connect profile for serverless compute, then run `python app.py` and open `http://localhost:8001`:
 
 ```bash
 databricks auth login --configure-serverless --host https://<your-workspace-host>
@@ -29,6 +29,8 @@ Complete the OAuth sign-in in the browser and use the `DEFAULT` profile, or set 
 ## Inspect source columns
 
 Selecting local files automatically detects CSV, JSON, TXT, Parquet, Avro, or ORC from the file extension and displays the source columns and data types. **Browse folder** detects Delta from `_delta_log` and Iceberg from its metadata directory. The detected format remains editable when an extension is misleading. Files are sent to the app backend for inspection without saving them or uploading them to Databricks. CSV and JSON types are inferred from up to 1,000 records per file; Parquet, ORC, Avro, Delta, and Iceberg use their stored metadata. TXT sources have one string column named `value`. Local inspection supports selections up to 60 MB; Delta checkpoint-only folders and larger sources can use **Load from Databricks** with a configured connection and accessible table or path.
+
+Generated source readers use one chained statement for every format. For example, JSON uses `df = spark.read.format("json").option("multiline", "true").load(path)` and CSV includes its header and schema-inference options in the same statement. Multiline JSON allows one document to span several lines. Spark can still read newline-delimited JSON with this setting, although very large JSON documents are usually more efficient when stored as one record per line.
 
 After loading a schema, selected transformations show warnings beside unknown input columns, including common SQL and `F.col(...)` expression references. Checks follow selection order and account for calculated, renamed, selected, removed, aggregated, and flattened columns. New output column names are allowed. Dynamic pivot columns, structures whose fields cannot be determined locally, manual notebook edits, and Delta management fields referencing a separate target table require Spark validation. Changing the source clears its schema and previous warnings.
 
@@ -45,6 +47,25 @@ To keep intermediate results, select your first transformations (for example, fo
 DataFrame transformations retain their selected order. Delta table operations and SCD actions run after those transformations, retaining their relative order. Output writing follows these operations, and all generated `display` calls appear in the final notebook cell. SCD null/duplicate checks stay immediately before their merge or write, since those actions validate the operation's inputs. This ordering also means an SCD merge consumes the completed source pipeline even when it was selected before other transformations.
 
 Generated notebooks batch independent arithmetic mappings in calculated-column and date-expression steps using `withColumns`. References to earlier outputs and repeated output names start a new batch; complex SQL and function expressions stay sequential. The selected transformation order is preserved because moving filters, sorts, windows, or aggregations can change results. This reduces projection-plan overhead for eligible mappings; execution time still depends on data size, shuffles, storage, and Databricks compute. Manually edited notebook code is not automatically optimized.
+
+## Advanced engineering modules
+
+The **Engineering modules** category adds production pipeline building blocks directly to generated PySpark notebooks:
+
+- **Data profiling** generates row counts, null counts, distinct counts, and descriptive statistics.
+- **Data quality rules** split valid and failed records and attach the failed rule names.
+- **Join DataFrames** reads another table and joins it with configurable keys and join type.
+- **Pipeline branching** creates named matching and nonmatching DataFrames without copying data.
+- **Rejected records** route invalid rows to a separate DataFrame with a rejection reason.
+- **Schema evolution** compares source and target fields and can enable Delta `mergeSchema` output.
+- **Notebook parameters** generate Databricks widgets for environment-specific configuration.
+- **Incremental loading** supports watermark filters and Delta Change Data Feed starting versions.
+- **Monitoring** creates a run ID, UTC timestamp, status, and row-count metrics DataFrame.
+- **Generated tests** add assertions for required columns, nulls, key uniqueness, and minimum row counts.
+
+The builder also includes a visual execution path, a performance advisor, and a step preview that runs the notebook only through a selected transformation. Its local pipeline assistant maps plain-language goals to relevant transformations; always review the suggested fields, expressions, and sample values before running them.
+
+Saved recipes can be exported to JSON and imported into another browser. Recipe files contain notebook configuration and do not contain source data. The footer **Documentation** link opens the complete in-app usage guide.
 
 ## Build for Windows
 

@@ -32,8 +32,7 @@
         <div class="connection-row"><span class="connection-status offline"></span><span>Databricks · not connected</span><span class="connected">PySpark</span></div>
 
         <div class="sidebar-bottom">
-          <div class="help-card"><div class="help-icon">?</div><div><strong>Need a hand?</strong><span>Read the quickstart guide</span></div><span class="help-arrow">↗</span></div>
-          <div class="user-row"><div class="avatar" id="userAvatar">GU</div><div class="user-copy"><strong id="currentUserName">Guest user</strong><span id="currentUserRole">Checking Databricks SSO</span></div><span class="more">···</span></div>
+          <button class="user-row" id="userMenuButton" type="button" aria-haspopup="dialog" aria-controls="authModal"><div class="avatar" id="userAvatar">GU</div><div class="user-copy"><strong id="currentUserName">Guest user</strong><span id="currentUserRole">Checking Databricks SSO</span></div><span class="more" aria-hidden="true">···</span></button>
         </div>
       </aside>
       <button id="sidebarBackdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" hidden></button>
@@ -55,7 +54,7 @@
             </a>
             <div class="breadcrumbs"><span>Workspace</span><span class="crumb-sep">/</span><span id="breadcrumbCurrent">Notebook builder</span></div>
           </div>
-          <div class="top-actions"><button class="icon-button" aria-label="Notifications">♧<i></i></button><button class="top-help">Help center <span>↗</span></button><button id="authButton" class="auth-button" type="button" aria-haspopup="dialog" aria-controls="authModal" disabled>Checking sign-in…</button></div>
+          <div class="top-actions"><button class="icon-button" type="button" aria-label="Notifications">♧<i></i></button><button class="top-help" type="button" data-go-view="help">Help center <span>↗</span></button><button id="authButton" class="auth-button" type="button" aria-haspopup="dialog" aria-controls="authModal" disabled>Checking sign-in…</button></div>
         </header>
 
         <div class="page-wrap">
@@ -101,8 +100,8 @@
             <p class="upload-footnote" id="uploadFootnote">Selected files are sent to this app for schema inspection and are not saved or uploaded to Databricks. Make the data available at the Databricks path above before running the notebook.</p>
             <div class="schema-toolbar"><button id="loadSourceSchema" class="secondary-action" type="button">Inspect selected files</button><button id="loadRemoteSchema" class="secondary-action" type="button" disabled>Load from Databricks</button></div>
             <p id="sourceSchemaStatus" class="schema-status" role="status">Select a file to inspect its columns, or load a Databricks table or path.</p>
+            <section id="sourceSchemaPanel" class="source-schema-panel" hidden aria-labelledby="schemaHeading"><div class="schema-heading"><h3 id="schemaHeading">Source columns</h3><span id="sourceSchemaCount"></span><button id="toggleSourceSchema" class="secondary-action" type="button" aria-expanded="true" aria-controls="sourceSchemaDetails">Collapse columns ▴</button></div><div id="sourceSchemaDetails"><div class="schema-table-wrap"><table class="schema-table"><thead><tr><th>Column name</th><th>Data type and nested fields</th></tr></thead><tbody id="sourceSchemaColumns"></tbody></table></div><p id="sourceSchemaNote" class="schema-note"></p></div></section>
             </div>
-            <section id="sourceSchemaPanel" class="source-schema-panel" hidden aria-labelledby="schemaHeading"><div class="schema-heading"><h3 id="schemaHeading">Source columns</h3><span id="sourceSchemaCount"></span><button id="toggleSourceSchema" class="secondary-action" type="button" aria-expanded="true" aria-controls="sourceSchemaDetails">Collapse columns ▴</button></div><div id="sourceSchemaDetails"><div class="schema-table-wrap"><table class="schema-table"><thead><tr><th>Column name</th><th>Databricks SQL type</th></tr></thead><tbody id="sourceSchemaColumns"></tbody></table></div><p id="sourceSchemaNote" class="schema-note"></p></div></section>
           </section>
 
           <div class="builder-grid">
@@ -123,6 +122,15 @@
               <div class="transform-list" id="transformList"></div>
               <div class="empty-state" id="emptyState" hidden><span>⌕</span><strong>No matching transformations</strong><small>Try another search term or choose a different category.</small></div>
               <div class="tip-row"><span class="tip-spark">✳</span><span><strong>Sample values are prefilled</strong> — Checked options generate PySpark. Adjust the example columns and expressions to match your data before running.</span></div>
+              <section class="module-hub" aria-labelledby="moduleHubTitle">
+                <div class="module-hub-heading"><div><span>PIPELINE TOOLS</span><h3 id="moduleHubTitle">Build, inspect, and improve</h3></div><button id="toggleModuleHub" class="module-toggle" type="button" aria-expanded="true" aria-controls="moduleHubContent"><span class="module-toggle-icon">⌃</span></button></div>
+                <div id="moduleHubContent">
+                  <div class="pipeline-visual" id="pipelineVisual"><span class="pipeline-empty">Select transformations to build the visual pipeline.</span></div>
+                  <div class="advisor-panel"><div><strong>Performance advisor</strong><span id="advisorCount">0 suggestions</span></div><ul id="performanceAdvice"><li>Select transformations to receive pipeline-specific guidance.</li></ul></div>
+                  <div class="assistant-panel"><label for="assistantPrompt">Assistant: describe the pipeline you want</label><textarea id="assistantPrompt" placeholder="Example: remove null employee IDs, keep the latest record, profile the result, and add tests"></textarea><div><button id="applyAssistant" class="primary-action" type="button">Suggest steps</button></div><p id="assistantStatus">Suggestions are applied locally and remain reviewable before code generation.</p></div>
+                  <div class="step-preview-panel"><label for="stepPreviewSelect">Preview the result through a selected step</label><div><select id="stepPreviewSelect"><option value="">Select transformations first</option></select><button id="previewCurrentPipeline" class="secondary-action" type="button">Run step preview</button></div><p>Runs a temporary notebook through this point without changing the configured pipeline.</p></div>
+                </div>
+              </section>
             </section>
 
             <aside class="preview-panel" aria-label="Notebook preview">
@@ -204,7 +212,7 @@
           </section>
 
           <section class="app-view secondary-view" id="recipesView" hidden>
-            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> LIBRARY</div><h1>Saved <span>recipes.</span></h1><p class="page-subtitle">Reuse notebook settings stored in this browser.</p></div><button class="primary-action" id="saveRecipeFromLibrary" type="button">＋ Save current setup</button></div>
+            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> LIBRARY</div><h1>Saved <span>recipes.</span></h1><p class="page-subtitle">Reuse notebook settings stored in this browser.</p></div><div class="recipe-page-actions"><button class="secondary-action" id="importRecipes" type="button">Import JSON</button><button class="secondary-action" id="exportRecipes" type="button">Export JSON</button><button class="primary-action" id="saveRecipeFromLibrary" type="button">＋ Save current setup</button><input id="recipeImportFile" type="file" accept="application/json,.json" hidden /></div></div>
             <div id="recipeList" class="recipe-grid"></div>
             <div id="emptyRecipes" class="library-empty" hidden><span>▤</span><strong>No saved recipes yet</strong><p>Configure a notebook, then save it to reuse the source, transformations, and output settings.</p><button class="primary-action" data-go-view="builder" type="button">Open notebook builder</button></div>
             <p class="workspace-note"><span>ⓘ</span> Saved recipes stay in this browser and do not upload source files.</p>
@@ -260,6 +268,32 @@
             </section>
 
             <section class="docs-section">
+              <div class="docs-section-heading"><span>ENGINEERING MODULES</span><h2>Build production data pipelines</h2><p>These modules add validation, observability, reusable configuration, and multi-DataFrame workflows to the generated notebook.</p></div>
+              <div class="docs-detail-grid">
+                <article><h3>Profile data</h3><p>Measures row counts, null counts, distinct values, and descriptive statistics. Profile before and after important transformations to understand their effect.</p></article>
+                <article><h3>Data quality rules</h3><p>Enter validation expressions to separate valid and failed rows. Failed records include the rule names so users can diagnose each problem.</p></article>
+                <article><h3>Join DataFrames</h3><p>Read a lookup or fact table and join it using mapped keys and the selected join type. Select only required columns before large joins where possible.</p></article>
+                <article><h3>Branch and reject records</h3><p>Create named DataFrames from matching and nonmatching rows, or route invalid records to a rejected DataFrame with a reason column.</p></article>
+                <article><h3>Schema evolution</h3><p>Compare source and target schemas before writing. For Delta output, merge mode also generates the <code>mergeSchema</code> writer option.</p></article>
+                <article><h3>Parameters and environments</h3><p>Create Databricks widgets for values such as environment, catalog, dates, or paths. One exported notebook can then run with different settings.</p></article>
+                <article><h3>Incremental loading</h3><p>Filter with a watermark column or read Delta Change Data Feed from a starting version. Use checkpoints or a control table to persist progress in an orchestrated job.</p></article>
+                <article><h3>Monitoring</h3><p>Creates a run ID, UTC timestamp, status, and row-count metrics DataFrame that can be displayed or written to an audit target.</p></article>
+                <article><h3>Generated tests</h3><p>Adds assertions for required columns, null values, unique keys, and minimum row counts. Run these before writes or SCD operations.</p></article>
+                <article><h3>Recipe portability</h3><p>Export saved recipes as JSON and import them into another browser. Source files remain local and are never included in the recipe file.</p></article>
+              </div>
+            </section>
+
+            <section class="docs-section">
+              <div class="docs-section-heading"><span>PIPELINE TOOLS</span><h2>Inspect and improve before export</h2><p>The builder provides immediate feedback while you configure the notebook.</p></div>
+              <div class="docs-detail-grid">
+                <article><h3>Visual pipeline</h3><p>Shows the source, every selected transformation in execution order, and the final preview or output. Uncheck and reselect a step to change its position.</p></article>
+                <article><h3>Step preview</h3><p>Select a step and run only the pipeline through that point. This helps locate the transformation where rows or columns first change unexpectedly.</p></article>
+                <article><h3>Performance advisor</h3><p>Flags common structural costs such as sorting before filtering, wide joins, array explosions, large window shuffles, and long unnamed pipelines.</p></article>
+                <article><h3>Pipeline assistant</h3><p>Describe a goal in plain language and LakeLoom suggests matching transformations. The assistant runs locally with keyword rules; review generated settings and expressions before execution.</p></article>
+              </div>
+            </section>
+
+            <section class="docs-section">
               <div class="docs-section-heading"><span>TROUBLESHOOTING</span><h2>Common questions</h2></div>
               <div class="docs-faq">
                 <details><summary>Why is a column highlighted as unknown?</summary><p>The column is unavailable at that position in the selected order. Check spelling, reinspect the source, or move the step after the transformation that creates it.</p></details>
@@ -273,10 +307,40 @@
             <div class="docs-finish"><div><strong>Ready to build?</strong><p>Open the builder and configure your first reusable PySpark notebook.</p></div><button class="primary-action" data-go-view="builder" type="button">Start building</button></div>
           </section>
 
+          <section class="app-view secondary-view help-view" id="helpView" hidden>
+            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>LAKELOOM <span class="eyebrow-slash">/</span> SUPPORT</div><h1>How can we <span>help?</span></h1><p class="page-subtitle">Find setup instructions, solve common problems, and contact the project maintainer.</p></div><button class="secondary-action" data-go-view="documentation" type="button">Read documentation</button></div>
+            <label class="help-search"><span>⌕</span><input id="helpSearch" type="search" placeholder="Search connection, JSON, preview, export…" aria-label="Search help topics" /></label>
+            <div class="help-topic-grid">
+              <button type="button" data-help-topic="connection"><span>◇</span><strong>Connect Databricks</strong><small>OAuth, profiles, and serverless compute</small></button>
+              <button type="button" data-help-topic="preview"><span>▶</span><strong>Preview problems</strong><small>Disabled buttons and execution errors</small></button>
+              <button type="button" data-help-topic="source"><span>{ }</span><strong>Files and schemas</strong><small>Formats, paths, and nested JSON</small></button>
+              <button type="button" data-help-topic="export"><span>↓</span><strong>Export and recipes</strong><small>Downloads and saved configurations</small></button>
+            </div>
+            <section class="help-panel" data-help-section="connection authentication oauth profile serverless databricks">
+              <div class="docs-section-heading"><span>CONNECTION</span><h2>Connect from your local computer</h2><p>The sign-in checker detects an existing Databricks CLI profile. It does not open a new localhost SSO session.</p></div>
+              <ol class="help-steps"><li><strong>Install the CLI</strong><code>brew install databricks/tap/databricks</code></li><li><strong>Authenticate in your browser</strong><code>databricks auth login --host https://&lt;your-workspace-host&gt; --profile DEFAULT</code></li><li><strong>Enable serverless</strong><code>serverless_compute_id = auto</code><small>Add this line under <code>[DEFAULT]</code> in <code>~/.databrickscfg</code>.</small></li><li><strong>Restart LakeLoom</strong><code>export DATABRICKS_CONFIG_PROFILE=DEFAULT<br>python app.py</code></li></ol>
+            </section>
+            <section class="help-panel" data-help-section="preview run execution disabled error permissions">
+              <div class="docs-section-heading"><span>PREVIEW</span><h2>Preview troubleshooting</h2></div>
+              <div class="docs-faq"><details open><summary>Why is Run preview disabled?</summary><p>LakeLoom did not find a Databricks profile, the workspace session is missing, or the pipeline contains a Delta management or SCD action that is blocked from read-only preview.</p></details><details><summary>Why can I connect but not read a table?</summary><p>Your Databricks user needs permission to use serverless compute and read the catalog, schema, table, volume, or external location entered as the source.</p></details><details><summary>Can preview run completely offline?</summary><p>No. Building, schema inspection for local files, recipes, code generation, and export work offline. PySpark execution uses Databricks compute.</p></details></div>
+            </section>
+            <section class="help-panel" data-help-section="files source schema json nested path csv folder">
+              <div class="docs-section-heading"><span>SOURCES</span><h2>Files, schemas, and nested JSON</h2></div>
+              <div class="docs-faq"><details><summary>Why do I enter a Databricks path after choosing a local file?</summary><p>The browser file is used for schema inspection. The generated notebook needs the equivalent workspace path, such as a Unity Catalog Volume path, when it runs.</p></details><details><summary>How do I read multiline JSON?</summary><p>JSON sources generate a single reader statement with <code>.option("multiline", "true")</code>.</p></details><details><summary>How do I flatten several array levels?</summary><p>Choose Multiple array levels and enter steps in order, for example <code>orders -&gt; order</code> and then <code>order.items -&gt; item</code>.</p></details></div>
+            </section>
+            <section class="help-panel" data-help-section="export download recipe save import browser">
+              <div class="docs-section-heading"><span>EXPORTS</span><h2>Downloads and saved recipes</h2></div>
+              <div class="docs-faq"><details><summary>Where are recipes stored?</summary><p>Recipes and activity history are stored in this browser profile. Use Export JSON to move recipes to another browser or computer.</p></details><details><summary>Which notebook formats can I download?</summary><p>LakeLoom exports Databricks source, Jupyter, plain text, Markdown, HTML, and browser print or PDF formats.</p></details></div>
+            </section>
+            <p class="help-empty" id="helpEmpty" hidden>No matching help topics were found. Try a shorter search.</p>
+            <div class="docs-finish"><div><strong>Still need help?</strong><p>Open an issue with the error message and the steps that produced it. Do not include access tokens.</p></div><a class="primary-action" href="https://github.com/madhurraj11/AI_Agent/issues/new" target="_blank" rel="noopener noreferrer">Report an issue ↗</a></div>
+          </section>
+
           <footer class="page-footer">
             <div class="footer-product"><span class="footer-product-mark" aria-hidden="true">✳</span><span><strong>LakeLoom</strong><small>PySpark notebook builder</small></span></div>
             <nav class="footer-links" aria-label="Product links">
               <a href="#documentation" data-go-view="documentation">Documentation</a>
+              <a href="#help" data-go-view="help">Help center</a>
               <a href="https://github.com/madhurraj11/AI_Agent" target="_blank" rel="noopener noreferrer">GitHub</a>
               <a href="https://www.linkedin.com/in/madhurchauhan1121/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
               <a href="https://github.com/madhurraj11/AI_Agent/issues/new" target="_blank" rel="noopener noreferrer">Report an issue</a>
@@ -295,6 +359,7 @@
         <div class="auth-identity-card" id="authIdentityCard" hidden><span class="auth-identity-icon">✓</span><div><strong id="authIdentityName"></strong><small id="authIdentityEmail"></small></div></div>
         <a class="primary-action dialog-primary" id="authWorkspaceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open Databricks workspace <span aria-hidden="true">↗</span></a>
         <button class="secondary-action dialog-primary" id="refreshAuth" type="button">Check sign-in status</button>
+        <p class="auth-check-status" id="authCheckStatus" role="status" aria-live="polite">This checks for an existing Databricks connection.</p>
         <button class="text-action dialog-cancel" type="button" data-close-modal>Close</button>
       </section>
     </div>

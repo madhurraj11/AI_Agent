@@ -63,7 +63,7 @@ _BLOCKED_CALLS = {
 }
 _RESERVED_NAMES = _SAFE_TYPES | {"spark", "F", "Window", "json", "re", "display", "__builtins__"}
 _READ_FORMATS = {"avro", "csv", "delta", "iceberg", "json", "orc", "parquet", "text"}
-_READ_OPTIONS = {"header", "inferSchema", "versionAsOf"}
+_READ_OPTIONS = {"header", "inferSchema", "multiline", "versionAsOf"}
 
 
 def _expression_root_name(node):
@@ -399,4 +399,4 @@ def run_preview():
 if __name__ == "__main__":
     # Convenience for local UI work only. Authentication is available when deployed
     # behind the Databricks Apps proxy, not when using Flask's local server.
-    app.run(host="0.0.0.0", port=int(os.environ.get("DATABRICKS_APP_PORT", "8000")))
+    app.run(host="0.0.0.0", port=int(os.environ.get("DATABRICKS_APP_PORT", "8001")))

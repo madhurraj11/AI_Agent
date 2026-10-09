@@ -259,6 +259,19 @@ transformations.push({
   ]
 });
 
+transformations.push(
+  { id: 'profileData', category: 'engineering', icon: '◫', title: 'Profile DataFrame', description: 'Generate row counts, summary statistics, null counts, and distinct counts.', fields: [inputField('columns', 'Columns to profile (optional)', 'employee_id, salary, department', true, '', 'Leave blank to profile every column.'), inputField('sampleFraction', 'Sample fraction', '1.0', false, '1.0', 'Use a value between 0 and 1. Use 1.0 for the complete DataFrame.')] },
+  { id: 'qualityRules', category: 'engineering', icon: '✓', title: 'Apply data quality rules', description: 'Evaluate named SQL rules and separate valid and failed records.', fields: [inputField('validFrame', 'Valid DataFrame name', 'df_valid'), inputField('failedFrame', 'Failed DataFrame name', 'df_failed'), { key: 'rules', label: 'Rule name -> Spark SQL condition', type: 'textarea', value: 'employee_id_required -> employee_id IS NOT NULL\npositive_salary -> salary > 0', placeholder: 'rule_name -> Spark SQL condition', wide: true, hint: 'All rules must pass for a row to be valid.' }] },
+  { id: 'joinFrame', category: 'engineering', icon: '⋈', title: 'Join another DataFrame', description: 'Read another table and join it to the current pipeline.', fields: [inputField('source', 'Table or view to join', 'catalog.schema.dim_department', true), inputField('rightFrame', 'Right DataFrame name', 'df_lookup'), { key: 'joinType', label: 'Join type', type: 'select', value: 'left', options: [['left', 'Left join'], ['inner', 'Inner join'], ['right', 'Right join'], ['full', 'Full join'], ['left_semi', 'Left semi join'], ['left_anti', 'Left anti join']] }, { key: 'keys', label: 'Left column -> right column', type: 'textarea', value: 'department_id -> department_id', placeholder: 'customer_id -> customer_id', wide: true }] },
+  { id: 'branchFrame', category: 'engineering', icon: '⑂', title: 'Branch the pipeline', description: 'Create matching and non-matching DataFrames from one condition.', fields: [inputField('condition', 'Spark SQL condition', 'salary > 0', true), inputField('matchFrame', 'Matching DataFrame', 'df_valid'), inputField('otherFrame', 'Other DataFrame', 'df_rejected')] },
+  { id: 'schemaEvolution', category: 'engineering', icon: '⇄', title: 'Compare target schema', description: 'Compare source and target fields before enabling schema evolution.', fields: [inputField('target', 'Target table', 'catalog.schema.target_table', true), { key: 'allowEvolution', label: 'Write behavior', type: 'select', value: 'report', options: [['report', 'Report schema differences'], ['merge', 'Enable Delta mergeSchema']] }] },
+  { id: 'rejectRecords', category: 'engineering', icon: '!', title: 'Capture rejected records', description: 'Split invalid rows and attach a rejection reason.', fields: [inputField('condition', 'Valid row condition', 'employee_id IS NOT NULL', true), inputField('validFrame', 'Valid DataFrame', 'df_valid'), inputField('rejectedFrame', 'Rejected DataFrame', 'df_rejected'), inputField('reason', 'Rejection reason', 'Missing employee ID', true)] },
+  { id: 'notebookParameters', category: 'engineering', icon: '⚙', title: 'Add notebook parameters', description: 'Create Databricks widgets for environment and processing values.', fields: [{ key: 'parameters', label: 'Parameter name : default value', type: 'textarea', value: 'environment: dev\nprocessing_date: 2026-01-01\nload_mode: incremental', placeholder: 'environment: dev', wide: true }] },
+  { id: 'incrementalLoad', category: 'engineering', icon: '↻', title: 'Apply incremental loading', description: 'Filter rows using a watermark or Delta Change Data Feed.', fields: [{ key: 'mode', label: 'Incremental method', type: 'select', value: 'watermark', options: [['watermark', 'Timestamp watermark'], ['cdf', 'Delta Change Data Feed']] }, inputField('column', 'Watermark column', 'updated_at'), inputField('value', 'Watermark value or start version', '2026-01-01T00:00:00Z', true)] },
+  { id: 'monitorPipeline', category: 'engineering', icon: '◉', title: 'Add pipeline monitoring', description: 'Capture run identifiers, timestamps, row counts, and status.', fields: [inputField('pipelineName', 'Pipeline name', 'employee_cleanup'), inputField('metricsFrame', 'Metrics DataFrame', 'df_metrics')] },
+  { id: 'generateTests', category: 'engineering', icon: 'T', title: 'Generate data tests', description: 'Add executable assertions for schema, nulls, uniqueness, and row counts.', fields: [inputField('requiredColumns', 'Required columns', 'employee_id, employee_name', true), inputField('notNullColumns', 'Not-null columns', 'employee_id', true), inputField('uniqueColumns', 'Unique key columns', 'employee_id', true), inputField('minimumRows', 'Minimum row count', '1')] }
+);
+
 function makeDuplicateOutputDefaultsUnique() {
   const outputKinds = new Set(['text', 'numeric', 'date', 'window', 'array', 'map', 'json']);
   const outputFields = transformations.flatMap(item => {
@@ -330,7 +343,7 @@ function createNewDataFrameStep(id, target) {
 const categories = [
   ['all', 'All transformations'], ['shape', 'Select & shape'], ['quality', 'Data quality'],
   ['filtering', 'Filter & sort'], ['expressions', 'Columns & expressions'],
-  ['dates', 'Date & time'], ['analytics', 'Analytics'], ['complex', 'Arrays, maps & JSON'], ['dataframe', 'DataFrame tools'], ['scd', 'Delta & SCD']
+  ['dates', 'Date & time'], ['analytics', 'Analytics'], ['complex', 'Arrays, maps & JSON'], ['dataframe', 'DataFrame tools'], ['engineering', 'Engineering modules'], ['scd', 'Delta & SCD']
 ];
 
 const sourcePathExamples = {
@@ -462,9 +475,9 @@ function renderWorkspaceViews() {
 }
 
 function setView(view) {
-  const knownViews = ['overview', 'builder', 'history', 'recipes', 'documentation'];
+  const knownViews = ['overview', 'builder', 'history', 'recipes', 'documentation', 'help'];
   const target = knownViews.includes(view) ? view : 'builder';
-  const titles = { overview: 'Overview', builder: 'Notebook builder', history: 'Run history', recipes: 'Saved recipes', documentation: 'Documentation' };
+  const titles = { overview: 'Overview', builder: 'Notebook builder', history: 'Run history', recipes: 'Saved recipes', documentation: 'Documentation', help: 'Help center' };
   if (document.getElementById('builderView').classList.contains('preview-focus-mode')) {
     setPreviewFocusMode(false);
   }
@@ -535,37 +548,67 @@ function renderDatabricksSession(session = {}) {
     authCopy.textContent = 'For local preview runs, configure Databricks Connect with a workspace OAuth profile. You can also deploy and open LakeLoom from Databricks Apps, where the workspace handles sign-in.';
     workspaceLink.firstChild.textContent = 'Open Databricks workspace ';
   }
+  const checkStatus = document.getElementById('authCheckStatus');
+  if (checkStatus) {
+    checkStatus.classList.toggle('is-connected', authenticated || session.localConnectReady === true);
+    checkStatus.classList.toggle('is-unavailable', !authenticated && session.localConnectReady !== true);
+    checkStatus.textContent = authenticated
+      ? `Connected as ${name}.`
+      : session.localConnectReady
+        ? 'Your local Databricks Connect profile is ready. Preview execution is available.'
+        : databricksApp
+          ? 'No workspace identity was received. Open LakeLoom from the Databricks Apps page and sign in there.'
+          : 'No local connection was found. Run the Databricks CLI OAuth setup in a terminal, then check again.';
+  }
   updateRunAvailability();
   updateSchemaAvailability();
 }
 
 function updateRunAvailability() {
   const button = document.getElementById('runPreview');
+  const stepButton = document.getElementById('previewCurrentPipeline');
   const help = document.getElementById('runHelp');
   if (!button || !help) return;
   if (state.previewRunning) {
     button.disabled = true;
     button.textContent = 'Running…';
+    if (stepButton) {
+      stepButton.disabled = true;
+      stepButton.textContent = 'Running…';
+    }
     return;
   }
+
+  button.textContent = '▶ Run preview';
+  if (stepButton) stepButton.textContent = 'Run step preview';
 
   const deltaOperationSelected = [...state.selected].some(id => id.startsWith('delta') || id.startsWith('scd'));
   if (!state.session.previewAvailable) {
     button.disabled = true;
+    if (stepButton) {
+      stepButton.disabled = true;
+      stepButton.title = 'A Databricks connection is required to execute PySpark. Code generation and export remain available offline.';
+    }
     help.textContent = state.session.databricksApp
       ? 'Databricks Connect is not available in this app runtime. Add it to requirements and redeploy LakeLoom.'
-      : 'Configure Databricks Connect with a workspace OAuth profile, or deploy LakeLoom as a Databricks App.';
+      : 'Offline mode: build and export notebooks normally. Connect Databricks only when you want to execute a preview.';
     help.classList.remove('is-warning');
   } else if (state.session.databricksApp && !state.session.authenticated) {
     button.disabled = true;
+    if (stepButton) stepButton.disabled = true;
     help.textContent = 'Sign in through your Databricks workspace to run this preview.';
     help.classList.remove('is-warning');
   } else if (deltaOperationSelected) {
     button.disabled = true;
+    if (stepButton) stepButton.disabled = true;
     help.textContent = 'Remove Delta table management or SCD steps to run a read-only data preview.';
     help.classList.add('is-warning');
   } else {
     button.disabled = false;
+    if (stepButton) {
+      stepButton.disabled = false;
+      stepButton.title = 'Run the generated PySpark pipeline through the selected step.';
+    }
     help.textContent = state.session.databricksApp
       ? 'Runs the current PySpark pipeline on Databricks and returns up to 100 rows. Write steps are skipped.'
       : 'Runs as the Databricks user configured in your local Connect profile and returns up to 100 rows. Write steps are skipped.';
@@ -644,6 +687,9 @@ const dropdownHelp = {
   'window.direction': { desc: 'Order the newest or largest values first inside each partition.', asc: 'Order the oldest or smallest values first inside each partition.' },
   'deltaInspect.action': { history: 'Return recent commits, operations, users, timestamps, and version numbers.', detail: 'Return table metadata such as format, location, size, properties, and partition columns.' },
   'deltaCompare.comparison': { except: 'Return distinct rows present in the earlier version but absent from the later version.', exceptAll: 'Return differences while preserving duplicate row counts.' },
+  'joinFrame.joinType': { left: 'Keep every current row and matching lookup rows.', inner: 'Keep only rows that match on both sides.', right: 'Keep every lookup row and matching current rows.', full: 'Keep all rows from both sides.', left_semi: 'Keep current rows that have a match without adding lookup columns.', left_anti: 'Keep current rows that do not have a match.' },
+  'schemaEvolution.allowEvolution': { report: 'Compare source and target fields without changing write behavior.', merge: 'Report differences and add mergeSchema guidance for a Delta write.' },
+  'incrementalLoad.mode': { watermark: 'Keep records newer than a timestamp watermark.', cdf: 'Read Delta Change Data Feed from a starting version and keep inserts and update post-images.' },
   '*.targetKind': { table: 'Address the Delta target by its Unity Catalog name: catalog.schema.table.', path: 'Address the Delta target by its storage location, such as a /Volumes or cloud path.' }
 };
 
@@ -986,6 +1032,99 @@ function pyLiteral(value) {
   return pyString(value);
 }
 
+const advancedTransformationIds = new Set(['profileData', 'qualityRules', 'joinFrame', 'branchFrame', 'schemaEvolution', 'rejectRecords', 'notebookParameters', 'incrementalLoad', 'monitorPipeline', 'generateTests']);
+
+function addAdvancedTransformationCode(item, frame, lines) {
+  const value = key => getValue(item.id, key);
+  const validFrameName = (name, fallback) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : fallback;
+  if (item.id === 'profileData') {
+    const columns = csvList(value('columns'));
+    const fraction = Number(value('sampleFraction'));
+    const profiled = fraction > 0 && fraction < 1 ? `${frame}.sample(False, ${fraction})` : frame;
+    lines.push(`_profile_df = ${profiled}`);
+    lines.push(`_profile_columns = ${columns.length ? pyList(columns) : '_profile_df.columns'}`);
+    lines.push(`_profile_row_count = _profile_df.count()`);
+    lines.push(`_profile_metrics = [(_column, _profile_df.filter(F.col(_column).isNull()).count(), _profile_df.select(_column).distinct().count()) for _column in _profile_columns]`);
+    lines.push(`display(spark.createDataFrame(_profile_metrics, ["column", "null_count", "distinct_count"]))`);
+    lines.push(`display(_profile_df.select(*_profile_columns).summary())`);
+  } else if (item.id === 'qualityRules') {
+    const rules = flattenPlanLines(value('rules'));
+    const validFrame = validFrameName(value('validFrame'), 'df_valid');
+    const failedFrame = validFrameName(value('failedFrame'), 'df_failed');
+    if (!rules.length) return lines.push('# TODO: Add at least one data quality rule.');
+    const checks = rules.map(([, condition]) => `F.expr(${pyString(condition)})`);
+    lines.push(`_quality_passes = ${checks.join(' & ')}`);
+    lines.push(`${validFrame} = ${frame}.filter(_quality_passes)`);
+    lines.push(`${failedFrame} = ${frame}.filter(~_quality_passes).withColumn("failed_rules", F.array(*[${rules.map(([name, condition]) => `F.when(~F.expr(${pyString(condition)}), F.lit(${pyString(name)}))`).join(', ')}])).withColumn("failed_rules", F.filter(F.col("failed_rules"), lambda x: x.isNotNull()))`);
+    lines.push(`display(${validFrame})`, `display(${failedFrame})`);
+  } else if (item.id === 'joinFrame') {
+    const source = value('source');
+    const rightFrame = validFrameName(value('rightFrame'), 'df_lookup');
+    const keys = flattenPlanLines(value('keys'));
+    if (!source || !keys.length) return lines.push('# TODO: Add the table to join and at least one left -> right key mapping.');
+    lines.push(`${rightFrame} = spark.table(${pyString(source)})`);
+    const condition = keys.map(([left, right]) => `(F.col(${pyString(`left.${left}`)}) == F.col(${pyString(`right.${right}`)}))`).join(' & ');
+    lines.push(`${frame} = ${frame}.alias("left").join(${rightFrame}.alias("right"), ${condition}, ${pyString(value('joinType') || 'left')})`);
+  } else if (item.id === 'branchFrame') {
+    const condition = value('condition');
+    const matchFrame = validFrameName(value('matchFrame'), 'df_valid');
+    const otherFrame = validFrameName(value('otherFrame'), 'df_rejected');
+    if (!condition) return lines.push('# TODO: Add a Spark SQL branch condition.');
+    lines.push(`${matchFrame} = ${frame}.filter(F.expr(${pyString(condition)}))`);
+    lines.push(`${otherFrame} = ${frame}.filter(~F.expr(${pyString(condition)}))`);
+    lines.push(`display(${matchFrame})`, `display(${otherFrame})`);
+  } else if (item.id === 'schemaEvolution') {
+    const target = value('target');
+    if (!target) return lines.push('# TODO: Add a target table for schema comparison.');
+    lines.push(`_target_schema_df = spark.table(${pyString(target)})`);
+    lines.push(`_source_types = dict(${frame}.dtypes)`);
+    lines.push(`_target_types = dict(_target_schema_df.dtypes)`);
+    lines.push(`_schema_names = sorted(set(_source_types) | set(_target_types))`);
+    lines.push(`_schema_diff = [(c, _source_types.get(c), _target_types.get(c), "match" if _source_types.get(c) == _target_types.get(c) else "different") for c in _schema_names]`);
+    lines.push(`display(spark.createDataFrame(_schema_diff, ["column", "source_type", "target_type", "status"]))`);
+    if (value('allowEvolution') === 'merge') lines.push(`# Output guidance: use .option("mergeSchema", "true") when writing ${frame} to the Delta target.`);
+  } else if (item.id === 'rejectRecords') {
+    const condition = value('condition');
+    const validFrame = validFrameName(value('validFrame'), 'df_valid');
+    const rejectedFrame = validFrameName(value('rejectedFrame'), 'df_rejected');
+    if (!condition) return lines.push('# TODO: Add a valid-row condition.');
+    lines.push(`_valid_condition = F.expr(${pyString(condition)})`);
+    lines.push(`${validFrame} = ${frame}.filter(_valid_condition)`);
+    lines.push(`${rejectedFrame} = ${frame}.filter(~_valid_condition).withColumn("rejection_reason", F.lit(${pyString(value('reason') || 'Data quality rule failed')}))`);
+    lines.push(`display(${validFrame})`, `display(${rejectedFrame})`);
+  } else if (item.id === 'notebookParameters') {
+    const parameters = parseMappings(value('parameters'));
+    if (!parameters.length) return lines.push('# TODO: Add parameter name : default value mappings.');
+    parameters.forEach(([name, fallback]) => {
+      const safeName = name.replace(/[^A-Za-z0-9_]/g, '_');
+      lines.push(`dbutils.widgets.text(${pyString(safeName)}, ${pyString(fallback)})`);
+      lines.push(`${safeName} = dbutils.widgets.get(${pyString(safeName)})`);
+    });
+  } else if (item.id === 'incrementalLoad') {
+    if (value('mode') === 'cdf') {
+      lines.push('# Delta Change Data Feed was enabled on the source reader. Keep inserted and updated post-image records.');
+      lines.push(`${frame} = ${frame}.filter(F.col("_change_type").isin("insert", "update_postimage"))`);
+    } else if (value('column') && value('value')) {
+      lines.push(`${frame} = ${frame}.filter(F.col(${pyString(value('column'))}) > F.to_timestamp(F.lit(${pyString(value('value'))})))`);
+    } else lines.push('# TODO: Add a watermark column and value.');
+  } else if (item.id === 'monitorPipeline') {
+    const metricsFrame = validFrameName(value('metricsFrame'), 'df_metrics');
+    lines.push(`_lakeloom_run_id = str(uuid.uuid4())`);
+    lines.push(`_lakeloom_completed_at = datetime.now(timezone.utc).isoformat()`);
+    lines.push(`${metricsFrame} = spark.createDataFrame([(_lakeloom_run_id, ${pyString(value('pipelineName') || 'pipeline')}, _lakeloom_completed_at, ${frame}.count(), "SUCCESS")], ["run_id", "pipeline_name", "completed_at", "row_count", "status"])`);
+    lines.push(`display(${metricsFrame})`);
+  } else if (item.id === 'generateTests') {
+    const required = csvList(value('requiredColumns'));
+    const notNull = csvList(value('notNullColumns'));
+    const unique = csvList(value('uniqueColumns'));
+    const minimumRows = /^\d+$/.test(value('minimumRows')) ? value('minimumRows') : '1';
+    if (required.length) lines.push(`assert set(${pyList(required)}).issubset(set(${frame}.columns)), "Required columns are missing"`);
+    notNull.forEach(column => lines.push(`assert ${frame}.filter(F.col(${pyString(column)}).isNull()).limit(1).count() == 0, ${pyString(`${column} contains null values`)}`));
+    if (unique.length) lines.push(`assert ${frame}.groupBy(*${pyList(unique)}).count().filter(F.col("count") > 1).limit(1).count() == 0, "Unique key check failed"`);
+    lines.push(`assert ${frame}.limit(${Number(minimumRows) + 1}).count() >= ${minimumRows}, "Minimum row count check failed"`);
+  }
+}
+
 function addTransformationCode(item, frame, lines, stepNumber) {
   const value = key => getValue(item.id, key);
   const columns = key => csvList(value(key));
@@ -993,7 +1132,9 @@ function addTransformationCode(item, frame, lines, stepNumber) {
   const todo = message => lines.push(`# TODO: ${message}`);
 
   lines.push(`# Step ${stepNumber}: ${item.title}`);
-  if (item.id === 'createFrameFromSchema') {
+  if (advancedTransformationIds.has(item.id)) {
+    addAdvancedTransformationCode(item, frame, lines);
+  } else if (item.id === 'createFrameFromSchema') {
     addCreateFrameFromSchema(item, frame, lines);
   } else if (item.id === 'selectColumns') {
     const names = validSelectionColumns(item, columns('columns'));
@@ -1908,6 +2049,9 @@ function addOutputCode(frame, lines) {
   }
 
   lines.push(`_output_writer = ${writerFrame}.write.format(${pyString(format)}).mode(${pyString(writeMode)})`);
+  if (format === 'delta' && state.selected.has('schemaEvolution') && getValue('schemaEvolution', 'allowEvolution') === 'merge') {
+    lines.push(`_output_writer = _output_writer.option("mergeSchema", "true")`);
+  }
   if (format === 'csv') {
     const hasHeader = document.getElementById('csvHeader').checked ? 'true' : 'false';
     const delimiter = document.getElementById('csvDelimiter').value || ',';
@@ -1973,6 +2117,7 @@ function makeValidatedCode() {
   if (sparkTypeImports.size) lines.push(`from pyspark.sql.types import ${[...sparkTypeImports].join(', ')}`);
   if (selected.some(item => item.kind === 'window' || item.id === 'latest')) lines.push('from pyspark.sql.window import Window');
   if (selected.some(item => item.id === 'standardizeNames')) lines.push('import re');
+  if (selected.some(item => item.id === 'monitorPipeline')) lines.push('import uuid', 'from datetime import datetime, timezone');
   if (selected.some(item => item.id.startsWith('delta') || item.id.startsWith('scd'))) lines.push('from delta.tables import DeltaTable');
   lines.push('', '# COMMAND ----------');
 
@@ -1985,20 +2130,25 @@ function makeValidatedCode() {
     if (state.uploads.length > 20) lines.push(`# - ...and ${state.uploads.length - 20} more file(s)`);
   }
   const isCatalogTable = ['delta', 'iceberg'].includes(format) && /^[\w-]+(?:\.[\w-]+){1,2}$/.test(source);
+  const cdfStep = selected.find(item => item.id === 'incrementalLoad' && getValue(item.id, 'mode') === 'cdf');
+  const cdfStart = cdfStep && /^\d+$/.test(getValue(cdfStep.id, 'value')) ? getValue(cdfStep.id, 'value') : '0';
   const hasValidDeltaVersion = format === 'delta' && /^\d+$/.test(deltaVersion);
   if (format === 'delta' && deltaVersion && !hasValidDeltaVersion) {
     lines.push('# TODO: Delta version must be a non-negative whole number. The latest version is loaded below.');
   }
-  if (isCatalogTable && hasValidDeltaVersion) {
-    lines.push(`reader = spark.read.option("versionAsOf", ${deltaVersion})`);
-    lines.push(`${frame} = reader.table(${pyString(source)})`);
+  if (isCatalogTable && cdfStep && format === 'delta') {
+    lines.push(`${frame} = spark.read.option("readChangeFeed", "true").option("startingVersion", ${cdfStart}).table(${pyString(source)})`);
+  } else if (isCatalogTable && hasValidDeltaVersion) {
+    lines.push(`${frame} = spark.read.option("versionAsOf", ${deltaVersion}).table(${pyString(source)})`);
   } else if (isCatalogTable) {
     lines.push(`${frame} = spark.read.table(${pyString(source)})`);
   } else {
-    lines.push(`reader = spark.read.format(${pyString(format)})`);
-    if (hasValidDeltaVersion) lines.push(`reader = reader.option("versionAsOf", ${deltaVersion})`);
-    if (format === 'csv') lines.push('reader = reader.option("header", "true").option("inferSchema", "true")');
-    lines.push(`${frame} = reader.load(${pyString(source)})`);
+    let sourceReader = `spark.read.format(${pyString(format)})`;
+    if (cdfStep && format === 'delta') sourceReader += `.option("readChangeFeed", "true").option("startingVersion", ${cdfStart})`;
+    if (hasValidDeltaVersion) sourceReader += `.option("versionAsOf", ${deltaVersion})`;
+    if (format === 'csv') sourceReader += '.option("header", "true").option("inferSchema", "true")';
+    if (format === 'json') sourceReader += '.option("multiline", "true")';
+    lines.push(`${frame} = ${sourceReader}.load(${pyString(source)})`);
   }
   if (selected.some(item => isNewDataFrameStep(item) && getValue(item.id, 'base') === 'source')) {
     lines.push(`# Preserve the original source before applying transformations`, `_lakeloom_source_df = ${frame}`);
@@ -2128,16 +2278,16 @@ function renderRunResult(result) {
   document.getElementById('runTable').innerHTML = count ? table : `${table}<p class="run-status">No rows matched this pipeline.</p>`;
 }
 
-async function runNotebookPreview() {
+async function runNotebookPreview(codeOverride = null, statusLabel = 'the selected pipeline') {
   if (state.previewRunning) return;
   const button = document.getElementById('runPreview');
   const results = document.getElementById('runResults');
   const status = document.getElementById('runStatus');
   const table = document.getElementById('runTable');
-  const code = codeForRunPreview(currentNotebookCode());
+  const code = codeForRunPreview(typeof codeOverride === 'string' ? codeOverride : currentNotebookCode());
   state.previewRunning = true;
   results.hidden = false;
-  status.textContent = 'Connecting to Databricks and running the selected pipeline…';
+  status.textContent = `Connecting to Databricks and running ${statusLabel}…`;
   status.classList.remove('is-error');
   table.innerHTML = '';
   updateRunAvailability();
@@ -2151,7 +2301,7 @@ async function runNotebookPreview() {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `Preview failed (${response.status}).`);
-    state.lastRunCode = currentNotebookCode();
+    state.lastRunCode = typeof codeOverride === 'string' ? codeOverride : currentNotebookCode();
     renderRunResult(payload);
   } catch (error) {
     status.textContent = error.message || 'Databricks could not run this preview.';
@@ -2245,8 +2395,66 @@ function syncDownloadFormatHint() {
   document.getElementById('downloadFormatHint').textContent = 'Click Export notebook, then choose a download format. The download starts immediately.';
 }
 
+function renderPipelineTools() {
+  const visual = document.getElementById('pipelineVisual');
+  if (!visual) return;
+  const selected = [...state.selected].map(id => transformations.find(item => item.id === id)).filter(Boolean);
+  visual.innerHTML = selected.length
+    ? [`<span class="pipeline-node source-node">Source</span>`, ...selected.map((item, index) => `<span class="pipeline-arrow" aria-hidden="true">→</span><span class="pipeline-node" title="Step ${index + 1}: ${escapeHtml(item.description)}">${escapeHtml(item.title)}</span>`), `<span class="pipeline-arrow" aria-hidden="true">→</span><span class="pipeline-node output-node">Preview / output</span>`].join('')
+    : '<span class="pipeline-empty">Select transformations to build the visual pipeline.</span>';
+
+  const ids = new Set(selected.map(item => item.id));
+  const advice = [];
+  if (selected.length > 8) advice.push('Split long pipelines into named DataFrames so intermediate results are easier to inspect.');
+  if (ids.has('sort') && [...ids].some(id => id === 'filter')) {
+    const order = selected.map(item => item.id);
+    if (order.indexOf('sort') < order.indexOf('filter')) advice.push('Move filtering before sorting when business logic allows it to reduce shuffled rows.');
+  }
+  if (ids.has('joinFrame') && !ids.has('selectColumns')) advice.push('Select required columns before large joins to reduce transferred data.');
+  if (ids.has('flattenNested')) advice.push('Exploding arrays can multiply rows; profile row counts before and after flattening.');
+  if (selected.some(item => item.kind === 'window' || item.id === 'latest')) advice.push('Window operations shuffle data. Use selective partition keys and avoid one very large partition.');
+  if ((ids.has('scd1') || ids.has('scd2')) && !ids.has('generateTests')) advice.push('Add generated data tests before an SCD merge to verify keys and required columns.');
+  if (ids.has('profileData') && selected.at(-1)?.id !== 'profileData') advice.push('Place profiling near the point whose data quality you want to measure.');
+  if (!ids.has('profileData')) advice.push('Add DataFrame profiling to measure nulls, distinct values, and summary statistics.');
+  if (!ids.has('qualityRules') && !ids.has('generateTests')) advice.push('Add quality rules or generated tests before writing production output.');
+  const adviceList = document.getElementById('performanceAdvice');
+  adviceList.innerHTML = advice.map(message => `<li>${escapeHtml(message)}</li>`).join('') || '<li>The selected pipeline has no immediate structural warnings.</li>';
+  document.getElementById('advisorCount').textContent = `${advice.length} suggestion${advice.length === 1 ? '' : 's'}`;
+
+  const stepSelect = document.getElementById('stepPreviewSelect');
+  if (stepSelect) {
+    const previousStep = stepSelect.value;
+    stepSelect.innerHTML = selected.length
+      ? selected.map((item, index) => `<option value="${index + 1}">Through step ${index + 1}: ${escapeHtml(item.title)}</option>`).join('')
+      : '<option value="">Select transformations first</option>';
+    if ([...stepSelect.options].some(option => option.value === previousStep)) stepSelect.value = previousStep;
+  }
+}
+
+function applyAssistantSuggestion() {
+  const prompt = document.getElementById('assistantPrompt').value.trim().toLowerCase();
+  const mappings = [
+    [/null|missing/, 'nulls'], [/duplicate|dedup/, 'dedupKeys'], [/latest|newest/, 'latest'],
+    [/filter|where/, 'filter'], [/sort|order/, 'sort'], [/aggregate|group|summary/, 'aggregate'],
+    [/flatten|nested|json/, 'flattenNested'], [/profile|statistics|null percentage/, 'profileData'],
+    [/quality|validate|rule/, 'qualityRules'], [/join|lookup/, 'joinFrame'], [/branch|split/, 'branchFrame'],
+    [/reject|invalid/, 'rejectRecords'], [/schema|evolution/, 'schemaEvolution'], [/parameter|widget|environment/, 'notebookParameters'],
+    [/incremental|watermark|change data feed|cdf/, 'incrementalLoad'], [/monitor|metric|run id/, 'monitorPipeline'], [/test|assert/, 'generateTests']
+  ];
+  const suggested = mappings.filter(([pattern]) => pattern.test(prompt)).map(([, id]) => id);
+  if (!prompt || !suggested.length) {
+    document.getElementById('assistantStatus').textContent = 'Describe operations such as profiling, joins, null handling, nested JSON, incremental loading, monitoring, or tests.';
+    return;
+  }
+  suggested.forEach(id => state.selected.add(id));
+  transformations.forEach(item => syncCard(item.id));
+  document.getElementById('assistantStatus').textContent = `Suggested ${suggested.length} step${suggested.length === 1 ? '' : 's'}: ${suggested.map(id => transformations.find(item => item.id === id)?.title).filter(Boolean).join(', ')}. Review their sample settings before running.`;
+  updatePreview();
+}
+
 function updatePreview() {
   refreshColumnValidation();
+  renderPipelineTools();
   const generatedCode = makeCode();
   const code = state.customCode === null ? generatedCode : state.customCode;
   codePreview.innerHTML = colorize(code);
@@ -2748,6 +2956,18 @@ document.getElementById('categorySelect').addEventListener('change', event => {
   applyCategory();
 });
 document.getElementById('operationSearch').addEventListener('input', applyCategory);
+document.getElementById('applyAssistant').addEventListener('click', applyAssistantSuggestion);
+document.getElementById('previewCurrentPipeline').addEventListener('click', () => {
+  if (!state.session.previewAvailable) return showToast('Databricks is required only for execution. You can still build, copy, and export the notebook offline.');
+  const count = Number(document.getElementById('stepPreviewSelect').value);
+  const orderedIds = [...state.selected];
+  if (!count || !orderedIds.length) return showToast('Select at least one transformation first.');
+  const originalSelection = state.selected;
+  state.selected = new Set(orderedIds.slice(0, count));
+  const stepCode = makeCode();
+  state.selected = originalSelection;
+  runNotebookPreview(stepCode, `steps 1 through ${count}`);
+});
 
 document.getElementById('clearSelection').addEventListener('click', () => {
   state.selected.clear();
@@ -2859,19 +3079,41 @@ document.querySelector('[data-copy-doc-code]')?.addEventListener('click', async 
     showToast('Copy is unavailable in this browser.');
   }
 });
+document.getElementById('helpSearch')?.addEventListener('input', event => {
+  const query = event.currentTarget.value.trim().toLowerCase();
+  const sections = [...document.querySelectorAll('[data-help-section]')];
+  let matches = 0;
+  sections.forEach(section => {
+    const visible = !query || `${section.dataset.helpSection} ${section.textContent}`.toLowerCase().includes(query);
+    section.hidden = !visible;
+    if (visible) matches++;
+  });
+  document.getElementById('helpEmpty').hidden = matches > 0;
+});
+document.querySelectorAll('[data-help-topic]').forEach(button => button.addEventListener('click', () => {
+  const search = document.getElementById('helpSearch');
+  search.value = button.dataset.helpTopic;
+  search.dispatchEvent(new Event('input', { bubbles: true }));
+  document.querySelector(`[data-help-section~="${button.dataset.helpTopic}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}));
 window.addEventListener('hashchange', () => setView(location.hash.replace(/^#/, '') || 'builder'));
 
 document.getElementById('authButton').addEventListener('click', () => {
   openModal('authModal', 'refreshAuth');
 });
+document.getElementById('userMenuButton').addEventListener('click', () => {
+  openModal('authModal', 'refreshAuth');
+});
 document.getElementById('refreshAuth').addEventListener('click', async event => {
   const button = event.currentTarget;
+  const status = document.getElementById('authCheckStatus');
   button.disabled = true;
   button.textContent = 'Checking…';
+  status.classList.remove('is-connected', 'is-unavailable');
+  status.textContent = 'Checking the current Databricks connection…';
   await loadDatabricksSession();
   button.disabled = false;
   button.textContent = 'Check sign-in status';
-  showToast(state.session.authenticated ? 'Databricks workspace session is active' : 'No Databricks workspace session was found');
 });
 document.querySelectorAll('[data-close-modal]').forEach(button => button.addEventListener('click', () => {
   closeModal(button.closest('.modal-backdrop'));
@@ -2885,6 +3127,32 @@ document.addEventListener('keydown', event => {
 
 document.getElementById('saveRecipe').addEventListener('click', openRecipeDialog);
 document.getElementById('saveRecipeFromLibrary').addEventListener('click', openRecipeDialog);
+document.getElementById('exportRecipes').addEventListener('click', () => {
+  const recipes = readLocalList(recipeStorageKey);
+  triggerDownload('lakeloom_recipes.json', JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), recipes }, null, 2), 'application/json;charset=utf-8');
+  addActivity('Recipes exported', `${recipes.length} recipe${recipes.length === 1 ? '' : 's'}`);
+  showToast(`Exported ${recipes.length} recipe${recipes.length === 1 ? '' : 's'}`);
+});
+document.getElementById('importRecipes').addEventListener('click', () => document.getElementById('recipeImportFile').click());
+document.getElementById('recipeImportFile').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    const incoming = Array.isArray(parsed) ? parsed : parsed.recipes;
+    if (!Array.isArray(incoming) || incoming.some(recipe => !recipe || typeof recipe !== 'object' || typeof recipe.name !== 'string')) throw new Error('Invalid recipe file');
+    const existing = readLocalList(recipeStorageKey);
+    const byId = new Map(existing.map(recipe => [recipe.id, recipe]));
+    incoming.forEach(recipe => byId.set(recipe.id || `recipe-${Date.now()}-${Math.random().toString(16).slice(2)}`, recipe));
+    if (!writeLocalList(recipeStorageKey, [...byId.values()].slice(0, 100))) return;
+    renderWorkspaceViews();
+    addActivity('Recipes imported', `${incoming.length} recipe${incoming.length === 1 ? '' : 's'}`);
+    showToast(`Imported ${incoming.length} recipe${incoming.length === 1 ? '' : 's'}`);
+  } catch {
+    showToast('Choose a valid LakeLoom recipe JSON file.');
+  }
+});
 document.getElementById('recipeForm').addEventListener('submit', event => {
   event.preventDefault();
   const name = document.getElementById('recipeName').value.trim();
@@ -3029,7 +3297,7 @@ document.addEventListener('keydown', event => {
     downloadCodeButton.focus();
   }
 });
-document.getElementById('runPreview').addEventListener('click', runNotebookPreview);
+document.getElementById('runPreview').addEventListener('click', () => runNotebookPreview());
 document.getElementById('clearRunResults').addEventListener('click', () => {
   document.getElementById('runResults').hidden = true;
   document.getElementById('runStatus').textContent = '';
@@ -3128,6 +3396,7 @@ function bindModuleToggle(buttonId, panelSelector, contentId, moduleName) {
 
 bindModuleToggle('toggleSourceModule', '.source-card', 'sourceModuleContent', 'source section');
 bindModuleToggle('toggleOutputModule', '.output-card', 'outputSettings', 'output settings');
+bindModuleToggle('toggleModuleHub', '.module-hub', 'moduleHubContent', 'pipeline tools');
 
 const sidebar = document.querySelector('.sidebar');
 const mainArea = document.querySelector('.main-area');

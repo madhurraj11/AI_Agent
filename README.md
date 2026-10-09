@@ -24,6 +24,8 @@ databricks auth login --configure-serverless --host https://<your-workspace-host
 python app.py
 ```
 
+If port 8000 is already in use, the local server picks a free port and prints its address in the terminal.
+
 Complete the OAuth sign-in in the browser and use the `DEFAULT` profile, or set `DATABRICKS_CONFIG_PROFILE` to your profile name before starting LakeLoom. The preview uses your Databricks user permissions. Without a configured profile, the Run preview button stays disabled and explains how to connect.
 
 ## Inspect source columns
@@ -74,6 +76,12 @@ On a Windows 10 or 11 machine, install Python 3.11 and run `build_windows.bat` f
 To enable Databricks preview in the packaged app, configure Databricks Connect authentication on that Windows machine first, using the Databricks CLI and the profile you intend to use. Notebook generation and export work without a Databricks connection.
 
 You can also run the **Build Windows app** workflow from the repository's GitHub Actions tab. It uploads the same ZIP as a downloadable workflow artifact.
+
+## Open the macOS app
+
+Use `LakeLoom-macOS-arm64-v2.zip` on an Apple Silicon Mac. Download the ZIP, double-click it to extract `LakeLoom.app`, then Control-click `LakeLoom.app` and choose **Open**. Confirm **Open** if macOS asks. LakeLoom starts its local server and opens the UI in your default browser. It uses port 8000 when available and chooses a free port automatically when 8000 is already in use.
+
+If macOS blocks the app, try opening it once, then go to **System Settings → Privacy & Security** and choose **Open Anyway** for LakeLoom. Startup details are logged at `~/Library/Logs/LakeLoom/launcher.log`.
 
 ## Deploy to Databricks Apps
 

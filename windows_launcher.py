@@ -17,7 +17,7 @@ def main():
 
     try:
         server = make_server("127.0.0.1", preferred_port, app, threaded=True)
-    except OSError:
+    except (OSError, SystemExit):
         # Keep the app usable if another local service already owns the preferred port.
         server = make_server("127.0.0.1", 0, app, threaded=True)
 

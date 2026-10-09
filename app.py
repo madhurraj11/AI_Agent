@@ -5,6 +5,7 @@ import ast
 import builtins
 import json
 import re
+import sys
 import threading
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -13,7 +14,28 @@ from flask import Flask, abort, jsonify, request, send_from_directory
 from source_schema import inspect_files, spark_columns
 
 
-APP_ROOT = Path(__file__).resolve().parent
+def _find_app_root():
+    required_assets = ("index.html", "app.js", "schema.js", "styles.css")
+    candidates = []
+    if getattr(sys, "frozen", False):
+        bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+        executable_root = Path(sys.executable).resolve().parent
+        candidates.extend((
+            bundle_root,
+            bundle_root.parent,
+            bundle_root / "Resources",
+            bundle_root.parent / "Resources",
+            executable_root,
+            executable_root.parent / "Resources",
+        ))
+    candidates.append(Path(__file__).resolve().parent)
+    for candidate in candidates:
+        if all((candidate / asset).is_file() for asset in required_assets):
+            return candidate
+    return candidates[-1]
+
+
+APP_ROOT = _find_app_root()
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
@@ -400,4 +422,11 @@ if __name__ == "__main__":
     # Convenience for local UI work only. Authentication is available when deployed
     # behind the Databricks Apps proxy, not when using Flask's local server.
     port = int(os.environ.get("LAKELOOM_PORT", os.environ.get("DATABRICKS_APP_PORT", "8000")))
-    app.run(host="127.0.0.1", port=port)
+    from werkzeug.serving import make_server
+
+    try:
+        server = make_server("127.0.0.1", port, app, threaded=True)
+    except (OSError, SystemExit):
+        server = make_server("127.0.0.1", 0, app, threaded=True)
+    print(f"LakeLoom is running at http://127.0.0.1:{server.server_port}")
+    server.serve_forever()

@@ -1,6 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
+import sys
+
+entry_script = 'macos_launcher.py' if sys.platform == 'darwin' else 'windows_launcher.py'
 
 datas = [('index.html', '.'), ('app.js', '.'), ('schema.js', '.'), ('styles.css', '.'), ('favicon.svg', '.')]
 binaries = []
@@ -18,7 +21,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['windows_launcher.py'],
+    [entry_script],
     pathex=[],
     binaries=binaries,
     datas=datas,

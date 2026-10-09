@@ -2,86 +2,69 @@
 
 ## 1. Introduction — 1 minute
 
-> LakeLoom is a web application that helps data engineers generate PySpark notebooks without manually writing every transformation.
+> LakeLoom is a visual PySpark notebook builder for Databricks. A data engineer configures a source, inspects its schema, selects and orders transformations, and gets a readable notebook as the pipeline is built. The generated code stays visible and editable, and can be previewed with Databricks, saved as a recipe, or exported.
 >
-> A user selects a data source, inspects its schema, chooses transformations, and immediately sees the generated PySpark code. The notebook can then be previewed with Databricks or exported in several formats.
->
-> My main goal was to make common data engineering work faster, easier to understand, and reusable.
+> The goal is to make common data engineering pipelines quicker to assemble and easier to review, while keeping users in control of the PySpark they run.
 
 ## 2. The problem — 1 minute
 
-Data engineers repeatedly write similar PySpark code for:
+Data engineers repeatedly write similar code for:
 
 - Selecting, renaming, and removing columns
-- Handling null values and duplicates
+- Handling nulls and duplicates
 - Filtering, sorting, and aggregating records
 - Flattening nested JSON
-- Applying window functions
-- Writing transformed output
+- Applying window functions and Delta operations
+- Adding quality checks, joins, and pipeline monitoring
 
-This work can be slow and error prone. LakeLoom provides a visual interface for configuring these operations while keeping the generated PySpark visible and editable.
-
-Key benefits:
-
-- Reduces repetitive PySpark coding
-- Helps beginners understand PySpark
-- Makes pipelines easier to review
-- Detects common column mistakes early
-- Produces reusable, editable notebooks
+LakeLoom provides a visual way to configure these steps and generates ordinary PySpark. It helps reduce repetitive setup, gives users an early view of likely column mistakes, and produces notebooks that can still be edited and reviewed in Databricks.
 
 ## 3. Source selection and schema inspection — 2 minutes
 
-LakeLoom supports three source methods.
+LakeLoom supports three source workflows:
 
-### Files
+### Local files and table folders
 
-Users can select CSV, JSON, TXT, Parquet, Avro, or ORC files. The format is detected from the file extension and remains editable when needed.
+Users can select CSV, JSON, TXT, Parquet, Avro, or ORC files. **Browse folder** can inspect Delta folders through `_delta_log` and Iceberg folders through their metadata. The format is detected from the selection and remains editable.
 
-### Table folder
+Local files are sent to the LakeLoom backend for schema inspection only; they are not saved or uploaded to Databricks. CSV and JSON types are inferred from up to 1,000 records per file. Parquet, ORC, Avro, Delta, and Iceberg use stored metadata. Local inspection supports selections up to 60 MB. The generated notebook still needs an equivalent Databricks-accessible path for execution.
 
-Users can select a complete Delta or Iceberg table directory.
+### Databricks sources
 
-### Databricks
+Users can enter a Unity Catalog table or a Databricks-accessible path. They can also load the schema from Databricks when local metadata is unavailable or the source is too large for local inspection.
 
-Users can enter a Unity Catalog table name or a Databricks storage path.
+### Schema validation
 
-### Schema inspection
+> LakeLoom displays source columns, Spark SQL types, and nested fields. Once a schema is loaded, it checks selected transformation inputs in order and warns about unknown columns, including common SQL and `F.col(...)` references. It accounts for outputs created, renamed, selected, removed, aggregated, or flattened by earlier steps.
 
-> LakeLoom inspects the selected source and displays its columns and Spark SQL types. It uses this information to validate transformation settings. If a transformation references an unavailable column, the field is highlighted before the notebook runs.
-
-Local files are used for schema inspection and are not uploaded to Databricks. The generated notebook reads from the Databricks path provided by the user.
+Dynamic pivot columns, nested fields that cannot be determined locally, manual notebook edits, and Delta management fields that refer to a separate target table still need Spark validation. Changing the source clears its previous schema and warnings.
 
 ## 4. Transformation library — 2 minutes
 
-The searchable transformation library is organized into these categories:
+The searchable transformation library is organized into:
 
-- **Select and shape:** select, create, rename, remove, and standardize columns
+- **Select & shape:** select, create, rename, remove, and standardize columns
 - **Data quality:** null handling, duplicate removal, key deduplication, and latest records
-- **Filter and sort:** filter expressions, sorting, and row limits
-- **Expressions:** text, numeric, conditional, array, map, and JSON functions
-- **Dates:** parsing, formatting, comparison, and date shifting
+- **Filter & sort:** filter expressions, sorting, and row limits
+- **Columns & expressions:** text, numeric, conditional, array, map, and JSON functions
+- **Date & time:** parsing, formatting, comparison, and date shifting
 - **Analytics:** grouping, aggregation, pivoting, ranking, and cumulative totals
 - **DataFrame tools:** intermediate DataFrames and typed sample DataFrames
-- **Delta and SCD:** Delta maintenance and dimension history
+- **Engineering modules:** profiling, quality rules, joins, branching, rejects, schema comparison, parameters, incremental loading, monitoring, and generated tests
+- **Delta & SCD:** Delta maintenance and dimension history
 
-> Selecting a transformation opens its settings. Dropdown options include explanations. Transformations run in selection order, and the live code preview updates whenever a setting changes.
+> Choosing a transformation opens its settings. The live notebook preview updates as settings change, and the selected steps run in their chosen order. Dropdowns include help text, and unknown input columns show warnings beside the relevant settings.
 
-## 5. Nested JSON flattening — 2 minutes
+## 5. Nested JSON flattening — 1–2 minutes
 
-LakeLoom supports:
-
-- Struct-only paths
-- A single array
-- Multiple nested arrays
-
-For multiple arrays, enter an ordered explode plan:
+LakeLoom supports struct paths, one array with optional nested struct expansion, and a plan for multiple nested arrays. For multiple arrays, the user enters ordered explode steps:
 
 ```text
 orders -> order
 order.items -> item
 ```
 
-Then select and rename the required fields:
+Then the user lists the fields to select and optional output aliases:
 
 ```text
 user_id
@@ -108,64 +91,56 @@ df = (
 )
 ```
 
-> The first line explodes `orders` and names each element `order`. The second line explodes the `items` array inside each order and names each element `item`. The output list selects the final leaf fields.
+> Each explode step names the array element for use by later steps. The final `select` keeps the requested leaf fields. Exploding arrays can multiply rows, so the performance advisor suggests profiling row counts around flattening.
 
-If an output alias changes, LakeLoom updates dependent paths in the form automatically.
+## 6. DataFrames and generated-code optimization — 1 minute
 
-## 6. Multiple DataFrames and optimization — 1 minute
+Users can divide a pipeline into named DataFrames, such as `df_next` and `df_part`. Each new DataFrame can start from the **Current result** or the **Original source**. Original-source mode preserves the original lazy reference before transformations; neither option copies, caches, or checkpoints the data.
 
-Users can divide a pipeline into multiple DataFrames, such as `df_next` and `df_part`.
+LakeLoom groups compatible independent calculated-column and date-expression mappings with `withColumns`. References to earlier outputs, repeated output names, and complex expressions remain sequential when needed. Transformation order is preserved because moving filters, sorts, windows, or aggregations can change results. The optimization can reduce projection-plan overhead for eligible mappings, but execution time still depends on data size, shuffles, storage, and Databricks compute. Manual code edits are not automatically optimized.
 
-Each new DataFrame can start from:
+## 7. Engineering modules — 1–2 minutes
 
-- **Current result:** continue all preceding transformations
-- **Original source:** restart from the original input DataFrame
+The **Engineering modules** category adds common production-pipeline building blocks to the generated notebook:
 
-> Spark DataFrames are lazy query plans. Assigning a new variable does not copy, execute, cache, or checkpoint the data.
+- **Profile DataFrame:** reports per-column null and distinct counts and summary statistics; users can choose columns and a sample fraction.
+- **Data quality rules:** evaluates named Spark SQL conditions, creates valid and failed DataFrames, and records which rules failed.
+- **Join another DataFrame:** reads a table and joins on configurable left-to-right keys using a selected join type.
+- **Branch the pipeline:** creates matching and nonmatching DataFrames from a condition.
+- **Capture rejected records:** separates invalid rows and attaches a rejection reason.
+- **Compare target schema:** displays source and target field types and differences. The merge option adds `mergeSchema` guidance for a Delta write; it does not perform the write by itself.
+- **Notebook parameters:** creates Databricks widgets for user-supplied values such as environment or processing date.
+- **Incremental loading:** filters on a timestamp watermark or reads Delta Change Data Feed from a starting version.
+- **Pipeline monitoring:** creates a run ID, UTC completion timestamp, row count, and status DataFrame.
+- **Generated data tests:** adds executable assertions for required columns, nulls, unique keys, and minimum row count.
 
-LakeLoom also groups compatible calculated columns with `withColumns` when it is safe. Dependent expressions remain in their required order.
+The outputs remain standard PySpark operations. Users should review the generated conditions, table names, parameters, and sample values before running the notebook.
 
-## 7. Delta Lake and SCD — 1–2 minutes
+## 8. Delta Lake and SCD — 1 minute
 
 ### SCD Type 1
 
-Keeps only the latest value for each business key. Matching rows are updated, so previous values are not retained.
+Keeps the latest value for each business key. Matching rows are updated, so previous values are not retained.
 
 ### SCD Type 2
 
 Preserves history by expiring the current row and inserting a new version. It uses fields such as `valid_from`, `valid_to`, and `is_current`.
 
-Other Delta operations include:
+Other Delta operations include inspecting table history and metadata, comparing versions, deleting matching records, restoring a previous version, and vacuuming old files.
 
-- Inspect table history and metadata
-- Compare Delta versions
-- Delete matching records
-- Restore a previous version
-- Vacuum old files
+> Delta maintenance and SCD actions can change a target table. The generated code stays visible so the user can review the target and operation. These actions are excluded from LakeLoom's read-only run preview.
 
-> Delta operations can change a target table. LakeLoom keeps the generated code visible so the user can review the target and operation first.
+## 9. Pipeline tools, preview, and export — 1 minute
 
-## 8. Preview, output, and export — 1 minute
+The builder includes three pipeline tools:
 
-The live preview displays the generated notebook. Users can:
+- **Visual execution path** shows the source, ordered transformations, and preview or output.
+- **Performance advisor** flags structural patterns such as sorting before filtering, wide joins, array explosions, large window shuffles, and long unnamed pipelines. Its suggestions are heuristics for review.
+- **Step preview** runs the notebook only through a selected transformation to help locate where results change.
 
-- Edit the generated code
-- Copy the code
-- Reset manual edits
-- Run a limited Databricks preview when connected
+The full **Run preview** executes through Databricks Connect or a Databricks App connection. It returns up to 100 rows, skips output writes, and does not run Delta management or SCD merge steps. Building and exporting notebooks work without Databricks; PySpark execution requires Databricks compute and source permissions.
 
-Supported output formats:
-
-- Delta
-- CSV
-- JSON
-- TXT
-- Parquet
-- Avro
-- ORC
-- Iceberg
-
-Supported export formats:
+Users can edit the generated code, copy it, reset manual edits, or export as:
 
 - Databricks Python notebook (`.py`)
 - Jupyter notebook (`.ipynb`)
@@ -174,27 +149,17 @@ Supported export formats:
 - HTML (`.html`)
 - PDF through the browser print dialog
 
-## 9. Recipes, history, and documentation — 1 minute
+## 10. Recipes, history, and help — 1 minute
 
-> Users can save the current source, transformations, and output settings as a recipe and restore the configuration later.
+> Users can save the source configuration, transformations, and output settings as a recipe, then restore that configuration later. Recipes and activity history are stored in the current browser profile. Recipes can be exported to JSON and imported in another browser; recipe files contain configuration, not source data.
 
-Recipes and local activity history are stored in the current browser profile. Source file contents are not stored in recipes.
+The in-app Documentation view covers setup, transformations, nested JSON, and common questions. The Help center has searchable topics for Databricks connection, preview problems, sources and schemas, exports, and recipes.
 
-The in-app documentation includes:
+## 11. Technical implementation — 1 minute
 
-- Quick-start instructions
-- Transformation reference
-- Nested JSON examples
-- Delta and SCD guidance
-- Troubleshooting questions
-
-## 10. Technical implementation — 1 minute
-
-> The frontend uses HTML, CSS, and JavaScript. It manages interface state, validates columns, and generates PySpark dynamically.
+> The frontend uses HTML, CSS, and JavaScript to manage the builder state, show schema feedback, and generate PySpark. The Flask backend serves the app, inspects local source metadata, and connects to Databricks for schema loading and preview.
 >
-> The backend uses Flask for application serving, source inspection, and preview integration. PySpark code uses `from pyspark.sql import functions as F` to keep function calls clear and avoid naming conflicts.
->
-> Browser storage holds recipes and local activity. Databricks authentication is required for workspace operations.
+> Databricks preview uses Databricks Connect with serverless compute. In a local run, it uses the configured profile of the person running Flask. In Databricks Apps, it runs as the app service principal. The UI does not receive the forwarded access token. Recipes and local activity are stored in the browser.
 
 ## Challenges to discuss
 
@@ -208,39 +173,40 @@ A field may exist in the source but disappear after a select, rename, aggregatio
 
 ### Code generation
 
-The generated code must remain readable while preserving dependencies between expressions and transformations.
+The generated code must remain readable while preserving dependencies between expressions and transformations. Eligible independent expressions can be batched without moving transformations whose order changes the result.
+
+### Safe, useful preview
+
+Preview should help users inspect results while keeping execution bounded and avoiding output writes or table-management actions. Databricks authentication also needs to stay on the backend.
 
 ### User experience
 
-The interface must guide beginners while keeping the actual PySpark visible for experienced engineers.
+The interface must guide beginners while keeping the actual PySpark visible for experienced engineers. Visual pipeline tools and field-level warnings provide guidance without hiding the generated code.
 
 ## Closing statement — 30 seconds
 
-> LakeLoom combines visual configuration with transparent PySpark generation. It supports source inspection, column validation, nested JSON, multiple DataFrames, Delta operations, Databricks preview, reusable recipes, and notebook export.
+> LakeLoom combines a visual pipeline builder with transparent PySpark generation. It supports source inspection, ordered column validation, nested JSON, multiple DataFrames, production engineering modules, Delta operations, bounded Databricks preview, reusable recipes, and notebook export.
 >
-> Its main value is helping users build pipelines faster while still allowing them to understand and control the final code.
+> Its value is helping data engineers assemble and review pipelines faster while keeping the final code understandable and under their control.
 
 ## Recommended live demonstration order
 
-1. Open **Overview**.
-2. Go to **Notebook builder**.
-3. Select a JSON file.
-4. Show format detection and schema inspection.
-5. Select **Flatten nested JSON**.
-6. Demonstrate the multiple-array explode plan.
-7. Add one data-quality transformation.
-8. Show column validation and generated code.
-9. Show output configuration.
-10. Open the export menu.
-11. Show saved recipes and history.
-12. Open the in-app documentation.
+1. Open **Overview** and briefly explain the builder.
+2. Go to **Notebook builder** and select a JSON file.
+3. Show format detection, nested schema display, and column validation.
+4. Add **Flatten nested JSON** and demonstrate a multiple-array explode plan.
+5. Add a named data quality rule and a generated test.
+6. Show the generated code and visual execution path.
+7. Open the performance advisor and step preview controls.
+8. Show a DataFrame boundary or the original-source option.
+9. Run a bounded preview if Databricks is connected; otherwise show the generated notebook and export options.
+10. Show saved recipes, JSON import/export, and the Documentation or Help center.
 
 ## Presentation advice
 
 - Demonstrate one simple feature and one complex feature.
 - Explain the problem before showing the solution.
-- Avoid opening every transformation card.
 - Keep the generated PySpark visible during the demonstration.
+- Review generated values and conditions before running them.
 - Mention one technical challenge and how you solved it.
 - Finish by explaining the value to data engineers.
-

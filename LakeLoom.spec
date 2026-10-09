@@ -2,12 +2,11 @@
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
 
-datas = [('index.html', '.'), ('app.js', '.'), ('styles.css', '.'), ('favicon.svg', '.')]
+datas = [('index.html', '.'), ('app.js', '.'), ('schema.js', '.'), ('styles.css', '.'), ('favicon.svg', '.')]
 binaries = []
 hiddenimports = []
 datas += copy_metadata('databricks-connect')
 datas += copy_metadata('databricks-sdk')
-datas += copy_metadata('pyspark')
 tmp_ret = collect_all('databricks.connect')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('databricks.sdk')

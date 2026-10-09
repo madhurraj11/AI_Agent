@@ -27,7 +27,7 @@ if not exist "dist\windows" mkdir "dist\windows"
     --add-data "%cd%\index.html;." --add-data "%cd%\app.js;." --add-data "%cd%\schema.js;." --add-data "%cd%\styles.css;." --add-data "%cd%\favicon.svg;." ^
     --collect-all databricks.connect --collect-all databricks.sdk ^
     --collect-all pyspark --collect-all py4j ^
-    --copy-metadata databricks-connect --copy-metadata databricks-sdk --copy-metadata pyspark ^
+    --copy-metadata databricks-connect --copy-metadata databricks-sdk ^
     windows_launcher.py
 if errorlevel 1 goto :failed
 

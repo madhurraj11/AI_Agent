@@ -17,7 +17,7 @@ python -m pip install -r requirements.txt
 
 Python 3.13 is incompatible with NumPy 1.26.4, which can be selected by this dependency stack. If installation reports a NumPy compiler or metadata-generation error, use the Python 3.11 environment above. Do not install standalone `pyspark` alongside `databricks-connect`; Databricks Connect provides the PySpark modules.
 
-Configure a Databricks Connect profile for serverless compute, then run `python app.py` and open `http://localhost:8001`:
+Configure a Databricks Connect profile for serverless compute, then run `python app.py` and open `http://localhost:8000`:
 
 ```bash
 databricks auth login --configure-serverless --host https://<your-workspace-host>
@@ -69,7 +69,7 @@ Saved recipes can be exported to JSON and imported into another browser. Recipe 
 
 ## Build for Windows
 
-On a Windows 10 or 11 machine, install Python 3.11 and run `build_windows.bat` from this folder. The script creates `dist\LakeLoom-Windows.zip`; extract it and run `LakeLoom.exe`. The app opens in your browser on localhost. Keep the console window open while using it, and press Ctrl+C there to stop the app. The package includes Python and the app dependencies, so Python is not needed on the target machine.
+On a Windows 10 or 11 machine, install Python 3.11 and run `build_windows.bat` from this folder. The script creates `dist\LakeLoom-Windows.zip`; extract it and run `LakeLoom.exe`. The packaged launcher uses port 8000 by default and opens the app in your browser. If that port is busy, it selects an available local port and prints the address. Keep the console window open while using it, and press Ctrl+C there to stop the app. The package includes Python and the app dependencies, so Python is not needed on the target machine.
 
 To enable Databricks preview in the packaged app, configure Databricks Connect authentication on that Windows machine first, using the Databricks CLI and the profile you intend to use. Notebook generation and export work without a Databricks connection.
 

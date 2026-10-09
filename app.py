@@ -399,4 +399,5 @@ def run_preview():
 if __name__ == "__main__":
     # Convenience for local UI work only. Authentication is available when deployed
     # behind the Databricks Apps proxy, not when using Flask's local server.
-    app.run(host="0.0.0.0", port=int(os.environ.get("DATABRICKS_APP_PORT", "8001")))
+    port = int(os.environ.get("LAKELOOM_PORT", os.environ.get("DATABRICKS_APP_PORT", "8000")))
+    app.run(host="127.0.0.1", port=port)

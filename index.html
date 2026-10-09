@@ -212,7 +212,7 @@
           </section>
 
           <section class="app-view secondary-view" id="recipesView" hidden>
-            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> LIBRARY</div><h1>Saved <span>recipes.</span></h1><p class="page-subtitle">Reuse notebook settings stored in this browser.</p></div><div class="recipe-page-actions"><button class="secondary-action" id="importRecipes" type="button">Import JSON</button><button class="secondary-action" id="exportRecipes" type="button">Export JSON</button><button class="primary-action" id="saveRecipeFromLibrary" type="button">＋ Save current setup</button><input id="recipeImportFile" type="file" accept="application/json,.json" hidden /></div></div>
+            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> LIBRARY</div><h1>Saved <span>recipes.</span></h1><p class="page-subtitle">Save and reuse notebook settings stored in this browser. Select one or more recipes to remove them together.</p></div><div class="recipe-page-actions"><label class="recipe-select-all"><input id="selectAllRecipes" type="checkbox" /> Select all</label><button class="secondary-action danger-action" id="deleteSelectedRecipes" type="button">Delete selected</button><button class="primary-action" id="saveRecipeFromLibrary" type="button">＋ Save current setup</button></div></div>
             <div id="recipeList" class="recipe-grid"></div>
             <div id="emptyRecipes" class="library-empty" hidden><span>▤</span><strong>No saved recipes yet</strong><p>Configure a notebook, then save it to reuse the source, transformations, and output settings.</p><button class="primary-action" data-go-view="builder" type="button">Open notebook builder</button></div>
             <p class="workspace-note"><span>ⓘ</span> Saved recipes stay in this browser and do not upload source files.</p>
@@ -230,7 +230,7 @@
               <article class="docs-card"><span class="docs-step">06</span><h2>Configure output</h2><p>Enable the write step and choose Delta, CSV, JSON, TXT, Parquet, Avro, ORC, or Iceberg.</p><ul><li>Set the Databricks destination and write mode.</li><li>Add partition columns only when they improve downstream reads.</li><li>Review format-specific settings such as CSV headers and compression.</li></ul></article>
               <article class="docs-card"><span class="docs-step">07</span><h2>Preview with Databricks</h2><p>Connect through Databricks Apps or a configured Databricks Connect profile. Run preview executes the generated notebook against the connected workspace and displays a limited result.</p><ul><li>Review the code before running it.</li><li>Use Edit code for manual adjustments.</li><li>Reset code to regenerate it from the selected options.</li></ul></article>
               <article class="docs-card"><span class="docs-step">08</span><h2>Export the notebook</h2><p>Click <strong>Export notebook</strong> and choose a format. The download begins immediately.</p><ul><li>Databricks source: <code>.py</code></li><li>Jupyter: <code>.ipynb</code></li><li>Plain text, Markdown, HTML, or Print / Save as PDF</li></ul></article>
-              <article class="docs-card"><span class="docs-step">09</span><h2>Save and reuse recipes</h2><p>Save the current source, transformations, and output settings as a recipe. Open Saved recipes to restore or delete a configuration.</p><ul><li>Recipes are stored in the current browser.</li><li>Source file contents are not stored in a recipe.</li><li>Verify paths before running a restored recipe.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">09</span><h2>Save and reuse recipes</h2><p>Save the current source, transformations, and output settings as a recipe. Open Saved recipes to restore, rename, or delete a configuration.</p><ul><li>Recipes are stored in the current browser.</li><li>Source file contents are not stored in a recipe.</li><li>Verify paths before running a restored recipe.</li></ul></article>
               <article class="docs-card"><span class="docs-step">10</span><h2>Review activity</h2><p>Run history records local notebook exports and recipe changes. Databricks execution status requires a connected backend.</p><ul><li>Use Clear history to remove local entries.</li><li>Browser data is specific to the current browser profile.</li><li>Report problems through the footer issue link.</li></ul></article>
             </div>
             <section class="docs-section">
@@ -279,7 +279,7 @@
                 <article><h3>Incremental loading</h3><p>Filter with a watermark column or read Delta Change Data Feed from a starting version. Use checkpoints or a control table to persist progress in an orchestrated job.</p></article>
                 <article><h3>Monitoring</h3><p>Creates a run ID, UTC timestamp, status, and row-count metrics DataFrame that can be displayed or written to an audit target.</p></article>
                 <article><h3>Generated tests</h3><p>Adds assertions for required columns, null values, unique keys, and minimum row counts. Run these before writes or SCD operations.</p></article>
-                <article><h3>Recipe portability</h3><p>Export saved recipes as JSON and import them into another browser. Source files remain local and are never included in the recipe file.</p></article>
+                <article><h3>Saved recipes</h3><p>Recipes stay in the current browser profile. Open a recipe to restore its notebook settings, or select one or more recipes to delete them.</p></article>
               </div>
             </section>
 
@@ -330,7 +330,7 @@
             </section>
             <section class="help-panel" data-help-section="export download recipe save import browser">
               <div class="docs-section-heading"><span>EXPORTS</span><h2>Downloads and saved recipes</h2></div>
-              <div class="docs-faq"><details><summary>Where are recipes stored?</summary><p>Recipes and activity history are stored in this browser profile. Use Export JSON to move recipes to another browser or computer.</p></details><details><summary>Which notebook formats can I download?</summary><p>LakeLoom exports Databricks source, Jupyter, plain text, Markdown, HTML, and browser print or PDF formats.</p></details></div>
+              <div class="docs-faq"><details><summary>Where are recipes stored?</summary><p>Recipes and activity history are stored in this browser profile.</p></details><details><summary>How do I remove several recipes?</summary><p>Select the checkbox on each recipe, then choose Delete selected. Use Select all to select every saved recipe.</p></details><details><summary>Which notebook formats can I download?</summary><p>LakeLoom exports Databricks source, Jupyter, plain text, Markdown, HTML, and browser print or PDF formats.</p></details></div>
             </section>
             <p class="help-empty" id="helpEmpty" hidden>No matching help topics were found. Try a shorter search.</p>
             <div class="docs-finish"><div><strong>Still need help?</strong><p>Open an issue with the error message and the steps that produced it. Do not include access tokens.</p></div><a class="primary-action" href="https://github.com/madhurraj11/AI_Agent/issues/new" target="_blank" rel="noopener noreferrer">Report an issue ↗</a></div>
@@ -370,6 +370,31 @@
         <p>Save the current source, selected transformations, and output settings to reuse them later.</p>
         <label class="field dialog-field"><span>Recipe name</span><input id="recipeName" required maxlength="60" placeholder="Employee data cleanup" /></label>
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" type="submit">Save recipe</button></div>
+      </form>
+    </div>
+    <div class="modal-backdrop" id="renameRecipeModal" hidden>
+      <form class="dialog-card" id="renameRecipeForm" role="dialog" aria-modal="true" aria-labelledby="renameRecipeDialogTitle">
+        <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
+        <div class="dialog-mark">✎</div><h2 id="renameRecipeDialogTitle">Rename recipe</h2>
+        <p>Enter a clear name that will help you identify this saved configuration.</p>
+        <label class="field dialog-field"><span>Recipe name</span><input id="renameRecipeName" required maxlength="80" autocomplete="off" placeholder="Employee data cleanup" /></label>
+        <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" type="submit">Rename recipe</button></div>
+      </form>
+    </div>
+    <div class="modal-backdrop" id="deleteRecipeModal" hidden>
+      <form class="dialog-card" id="deleteRecipeForm" role="alertdialog" aria-modal="true" aria-labelledby="deleteRecipeDialogTitle" aria-describedby="deleteRecipeDialogCopy">
+        <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
+        <div class="dialog-mark dialog-mark-danger" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 21a2 2 0 0 1-2-2V7h14v12a2 2 0 0 1-2 2H7Zm9-17 1 1h4v2H3V5h4l1-1h8Zm-7 6v8h2v-8H9Zm4 0v8h2v-8h-2Z"/></svg></div><h2 id="deleteRecipeDialogTitle">Delete recipe?</h2>
+        <p id="deleteRecipeDialogCopy">This saved recipe will be removed from this browser.</p>
+        <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action dialog-danger" id="confirmDeleteRecipes" type="submit">Delete recipe</button></div>
+      </form>
+    </div>
+    <div class="modal-backdrop" id="clearHistoryModal" hidden>
+      <form class="dialog-card" id="clearHistoryForm" role="alertdialog" aria-modal="true" aria-labelledby="clearHistoryDialogTitle" aria-describedby="clearHistoryDialogCopy">
+        <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
+        <div class="dialog-mark dialog-mark-danger" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 5.65 16h-3.82A6 6 0 1 1 18 12h-3l4.5 4.5L24 12h-3a9 9 0 0 0-9-9Zm-1 4v6l4 2 .9-1.8-2.9-1.45V7h-2Z"/></svg></div><h2 id="clearHistoryDialogTitle">Clear history?</h2>
+        <p id="clearHistoryDialogCopy">All local notebook downloads and recipe activity will be permanently removed from this browser.</p>
+        <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action dialog-danger" id="confirmClearHistory" type="submit">Clear history</button></div>
       </form>
     </div>
     <script src="schema.js"></script>

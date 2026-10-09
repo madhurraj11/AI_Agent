@@ -151,7 +151,7 @@ Users can edit the generated code, copy it, reset manual edits, or export as:
 
 ## 10. Recipes, history, and help — 1 minute
 
-> Users can save the source configuration, transformations, and output settings as a recipe, then restore that configuration later. Recipes and activity history are stored in the current browser profile. Recipes can be exported to JSON and imported in another browser; recipe files contain configuration, not source data.
+> Users can save the source configuration, transformations, and output settings as a recipe, then restore that configuration later. Recipes and activity history are stored in the current browser profile. Users can rename recipes or select and delete one or several recipes from the saved recipe library.
 
 The in-app Documentation view covers setup, transformations, nested JSON, and common questions. The Help center has searchable topics for Databricks connection, preview problems, sources and schemas, exports, and recipes.
 
@@ -200,7 +200,7 @@ The interface must guide beginners while keeping the actual PySpark visible for 
 7. Open the performance advisor and step preview controls.
 8. Show a DataFrame boundary or the original-source option.
 9. Run a bounded preview if Databricks is connected; otherwise show the generated notebook and export options.
-10. Show saved recipes, JSON import/export, and the Documentation or Help center.
+10. Show saved recipes, recipe renaming and multi-select deletion, and the Documentation or Help center.
 
 ## Presentation advice
 

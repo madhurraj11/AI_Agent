@@ -366,7 +366,10 @@ const recipeStorageKey = 'forge.dataPrep.recipes.v1';
 const activityStorageKey = 'forge.dataPrep.activity.v1';
 const notebookNameStorageKey = 'lakeloom.notebookName.v1';
 const notebookNameInput = document.getElementById('notebookName');
+const selectedRecipeIds = new Set();
 let modalReturnFocus = null;
+let renamingRecipeId = null;
+let pendingRecipeDeleteIds = [];
 
 try {
   const savedNotebookName = localStorage.getItem(notebookNameStorageKey);
@@ -406,6 +409,8 @@ function openModal(modalId, focusId) {
 function closeModal(modal) {
   if (!modal) return;
   modal.hidden = true;
+  if (modal.id === 'renameRecipeModal') renamingRecipeId = null;
+  if (modal.id === 'deleteRecipeModal') pendingRecipeDeleteIds = [];
   if (!document.querySelector('.modal-backdrop:not([hidden])')) {
     modalReturnFocus?.focus?.();
     modalReturnFocus = null;
@@ -429,6 +434,31 @@ function writeLocalList(key, items) {
     showToast('Browser storage is unavailable. Changes were not saved.');
     return false;
   }
+}
+
+function normalizeRecipeList(items) {
+  const seenIds = new Set();
+  return items
+    .filter(recipe => recipe && typeof recipe === 'object' && !Array.isArray(recipe))
+    .map(recipe => {
+      let id = recipe.id === undefined || recipe.id === null ? '' : String(recipe.id).trim();
+      if (!id || seenIds.has(id)) {
+        do {
+          id = `recipe-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        } while (seenIds.has(id));
+      }
+      seenIds.add(id);
+      return recipe.id === id ? recipe : { ...recipe, id };
+    });
+}
+
+function readRecipes() {
+  const stored = readLocalList(recipeStorageKey);
+  const recipes = normalizeRecipeList(stored);
+  if (recipes.length !== stored.length || recipes.some((recipe, index) => recipe !== stored[index])) {
+    writeLocalList(recipeStorageKey, recipes);
+  }
+  return recipes;
 }
 
 function addActivity(type, detail) {
@@ -458,9 +488,24 @@ function formatRelativeTime(value) {
   return new Date(timestamp).toLocaleDateString();
 }
 
+function syncRecipeSelectionControls(recipes) {
+  const availableIds = new Set(recipes.map(recipe => recipe.id));
+  for (const id of selectedRecipeIds) {
+    if (!availableIds.has(id)) selectedRecipeIds.delete(id);
+  }
+  const selectedCount = selectedRecipeIds.size;
+  const selectAll = document.getElementById('selectAllRecipes');
+  selectAll.disabled = recipes.length === 0;
+  selectAll.checked = recipes.length > 0 && selectedCount === recipes.length;
+  selectAll.indeterminate = selectedCount > 0 && selectedCount < recipes.length;
+  const deleteSelected = document.getElementById('deleteSelectedRecipes');
+  deleteSelected.disabled = selectedCount === 0;
+  deleteSelected.textContent = selectedCount ? `Delete selected (${selectedCount})` : 'Delete selected';
+}
+
 function renderWorkspaceViews() {
   const history = readLocalList(activityStorageKey);
-  const recipes = readLocalList(recipeStorageKey);
+  const recipes = readRecipes();
   document.getElementById('overviewTransformCount').textContent = state.selected.size;
   document.getElementById('overviewExportCount').textContent = history.filter(item => ['Notebook downloaded', 'Notebook exported'].includes(item.type)).length;
   document.getElementById('overviewRecipeCount').textContent = recipes.length;
@@ -468,10 +513,11 @@ function renderWorkspaceViews() {
   document.getElementById('historyList').innerHTML = activityMarkup(history, 'Your local notebook activity will appear here.');
   document.getElementById('recipeList').innerHTML = recipes.map(recipe => {
     const count = Array.isArray(recipe.selected) ? recipe.selected.length : 0;
-    return `<article class="recipe-card"><div class="recipe-card-top"><span class="recipe-mark">▤</span><button class="recipe-delete" type="button" data-recipe-delete="${escapeHtml(recipe.id || '')}" aria-label="Delete ${escapeHtml(recipe.name || 'recipe')}">×</button></div><h2>${escapeHtml(recipe.name || 'Untitled recipe')}</h2><p>${count} transformation${count === 1 ? '' : 's'} · ${escapeHtml(String(recipe.sourceFormat || 'delta').toUpperCase())} source${recipe.writeOutput ? ` · ${escapeHtml(String(recipe.outputFormat || '').toUpperCase())} output` : ''}</p><small>Saved ${formatRelativeTime(recipe.createdAt)}</small><button class="recipe-use" type="button" data-recipe-use="${escapeHtml(recipe.id || '')}">Use this recipe <span>↗</span></button></article>`;
+    return `<article class="recipe-card${selectedRecipeIds.has(recipe.id) ? ' is-selected' : ''}"><div class="recipe-card-top"><div class="recipe-card-leading"><label class="recipe-select"><input type="checkbox" data-recipe-select="${escapeHtml(recipe.id)}"${selectedRecipeIds.has(recipe.id) ? ' checked' : ''} /><span class="visually-hidden">Select ${escapeHtml(recipe.name || 'recipe')}</span></label><span class="recipe-mark" aria-hidden="true">▤</span></div><div class="recipe-card-actions"><button class="recipe-rename" type="button" data-recipe-rename="${escapeHtml(recipe.id)}" aria-label="Rename ${escapeHtml(recipe.name || 'recipe')}" title="Rename recipe"><svg class="recipe-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4l11-11-4-4L4 16v4Zm12.5-16.5 4 4 1-1a1.4 1.4 0 0 0 0-2l-2-2a1.4 1.4 0 0 0-2 0l-1 1Z"/></svg></button><button class="recipe-delete" type="button" data-recipe-delete="${escapeHtml(recipe.id)}" aria-label="Delete ${escapeHtml(recipe.name || 'recipe')}" title="Delete recipe"><svg class="recipe-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 21a2 2 0 0 1-2-2V7h14v12a2 2 0 0 1-2 2H7Zm9-17 1 1h4v2H3V5h4l1-1h8Zm-7 6v8h2v-8H9Zm4 0v8h2v-8h-2Z"/></svg></button></div></div><h2>${escapeHtml(recipe.name || 'Untitled recipe')}</h2><p>${count} transformation${count === 1 ? '' : 's'} · ${escapeHtml(String(recipe.sourceFormat || 'delta').toUpperCase())} source${recipe.writeOutput ? ` · ${escapeHtml(String(recipe.outputFormat || '').toUpperCase())} output` : ''}</p><small>Saved ${formatRelativeTime(recipe.createdAt)}</small><button class="recipe-use" type="button" data-recipe-use="${escapeHtml(recipe.id)}">Use this recipe <span>↗</span></button></article>`;
   }).join('');
   document.getElementById('emptyRecipes').hidden = recipes.length > 0;
   document.getElementById('recipeList').hidden = recipes.length === 0;
+  syncRecipeSelectionControls(recipes);
 }
 
 function setView(view) {
@@ -2552,7 +2598,7 @@ function saveCurrentRecipe(name) {
     csvDelimiter: document.getElementById('csvDelimiter').value,
     csvHeader: document.getElementById('csvHeader').checked
   };
-  const recipes = readLocalList(recipeStorageKey);
+  const recipes = readRecipes();
   recipes.unshift(recipe);
   if (!writeLocalList(recipeStorageKey, recipes.slice(0, 100))) return;
   closeModal(document.getElementById('recipeModal'));
@@ -2580,8 +2626,27 @@ function openRecipeDialog() {
   openModal('recipeModal', 'recipeName');
 }
 
+function openRecipeRenameDialog(recipe) {
+  renamingRecipeId = recipe.id;
+  const input = document.getElementById('renameRecipeName');
+  input.value = recipe.name || 'Untitled recipe';
+  openModal('renameRecipeModal', 'renameRecipeName');
+  requestAnimationFrame(() => input.select());
+}
+
+function openRecipeDeleteDialog(recipes) {
+  pendingRecipeDeleteIds = recipes.map(recipe => recipe.id);
+  const multiple = recipes.length > 1;
+  document.getElementById('deleteRecipeDialogTitle').textContent = multiple ? `Delete ${recipes.length} recipes?` : 'Delete recipe?';
+  document.getElementById('deleteRecipeDialogCopy').textContent = multiple
+    ? `The ${recipes.length} selected recipes will be permanently removed from this browser.`
+    : `“${recipes[0].name || 'Untitled recipe'}” will be permanently removed from this browser.`;
+  document.getElementById('confirmDeleteRecipes').textContent = multiple ? `Delete ${recipes.length} recipes` : 'Delete recipe';
+  openModal('deleteRecipeModal', 'confirmDeleteRecipes');
+}
+
 function useRecipe(recipeId) {
-  const recipe = readLocalList(recipeStorageKey).find(item => item.id === recipeId);
+  const recipe = readRecipes().find(item => item.id === recipeId);
   if (!recipe) return showToast('That saved recipe could not be found');
   invalidateSourceSchema();
   notebookNameInput.value = recipe.notebookName || recipe.name || 'Untitled notebook';
@@ -3127,54 +3192,105 @@ document.addEventListener('keydown', event => {
 
 document.getElementById('saveRecipe').addEventListener('click', openRecipeDialog);
 document.getElementById('saveRecipeFromLibrary').addEventListener('click', openRecipeDialog);
-document.getElementById('exportRecipes').addEventListener('click', () => {
-  const recipes = readLocalList(recipeStorageKey);
-  triggerDownload('lakeloom_recipes.json', JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), recipes }, null, 2), 'application/json;charset=utf-8');
-  addActivity('Recipes exported', `${recipes.length} recipe${recipes.length === 1 ? '' : 's'}`);
-  showToast(`Exported ${recipes.length} recipe${recipes.length === 1 ? '' : 's'}`);
+document.getElementById('selectAllRecipes').addEventListener('change', event => {
+  const recipes = readRecipes();
+  selectedRecipeIds.clear();
+  if (event.target.checked) recipes.forEach(recipe => selectedRecipeIds.add(recipe.id));
+  renderWorkspaceViews();
 });
-document.getElementById('importRecipes').addEventListener('click', () => document.getElementById('recipeImportFile').click());
-document.getElementById('recipeImportFile').addEventListener('change', async event => {
-  const file = event.target.files?.[0];
-  event.target.value = '';
-  if (!file) return;
-  try {
-    const parsed = JSON.parse(await file.text());
-    const incoming = Array.isArray(parsed) ? parsed : parsed.recipes;
-    if (!Array.isArray(incoming) || incoming.some(recipe => !recipe || typeof recipe !== 'object' || typeof recipe.name !== 'string')) throw new Error('Invalid recipe file');
-    const existing = readLocalList(recipeStorageKey);
-    const byId = new Map(existing.map(recipe => [recipe.id, recipe]));
-    incoming.forEach(recipe => byId.set(recipe.id || `recipe-${Date.now()}-${Math.random().toString(16).slice(2)}`, recipe));
-    if (!writeLocalList(recipeStorageKey, [...byId.values()].slice(0, 100))) return;
-    renderWorkspaceViews();
-    addActivity('Recipes imported', `${incoming.length} recipe${incoming.length === 1 ? '' : 's'}`);
-    showToast(`Imported ${incoming.length} recipe${incoming.length === 1 ? '' : 's'}`);
-  } catch {
-    showToast('Choose a valid LakeLoom recipe JSON file.');
-  }
+document.getElementById('deleteSelectedRecipes').addEventListener('click', () => {
+  const recipes = readRecipes();
+  const selected = recipes.filter(recipe => selectedRecipeIds.has(recipe.id));
+  if (!selected.length) return showToast('Select at least one recipe to delete');
+  openRecipeDeleteDialog(selected);
 });
 document.getElementById('recipeForm').addEventListener('submit', event => {
   event.preventDefault();
   const name = document.getElementById('recipeName').value.trim();
   if (name) saveCurrentRecipe(name);
 });
+document.getElementById('renameRecipeForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const recipes = readRecipes();
+  const recipe = recipes.find(item => item.id === renamingRecipeId);
+  if (!recipe) {
+    closeModal(document.getElementById('renameRecipeModal'));
+    renamingRecipeId = null;
+    renderWorkspaceViews();
+    return showToast('That saved recipe could not be found. Refresh and try again.');
+  }
+  const newName = document.getElementById('renameRecipeName').value.trim();
+  if (!newName) return showToast('Recipe name cannot be empty');
+  if (newName === recipe.name) return showToast('Recipe name was not changed');
+  const updatedRecipes = recipes.map(item => item.id === recipe.id ? { ...item, name: newName } : item);
+  if (!writeLocalList(recipeStorageKey, updatedRecipes)) return;
+  closeModal(document.getElementById('renameRecipeModal'));
+  renamingRecipeId = null;
+  renderWorkspaceViews();
+  addActivity('Recipe renamed', `${recipe.name} → ${newName}`);
+  showToast(`Renamed recipe to “${newName}”`);
+});
+document.getElementById('deleteRecipeForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const idsToDelete = new Set(pendingRecipeDeleteIds);
+  const recipes = readRecipes();
+  const deleted = recipes.filter(recipe => idsToDelete.has(recipe.id));
+  if (!deleted.length) {
+    closeModal(document.getElementById('deleteRecipeModal'));
+    renderWorkspaceViews();
+    return showToast('The selected recipe could not be found. Refresh and try again.');
+  }
+  if (!writeLocalList(recipeStorageKey, recipes.filter(recipe => !idsToDelete.has(recipe.id)))) return;
+  deleted.forEach(recipe => selectedRecipeIds.delete(recipe.id));
+  closeModal(document.getElementById('deleteRecipeModal'));
+  renderWorkspaceViews();
+  if (deleted.length === 1) {
+    addActivity('Recipe deleted', deleted[0].name);
+    showToast(`Deleted “${deleted[0].name}”`);
+  } else {
+    addActivity('Recipes deleted', `${deleted.length} recipes removed`);
+    showToast(`Deleted ${deleted.length} recipes`);
+  }
+});
 document.getElementById('recipeList').addEventListener('click', event => {
+  const renameButton = event.target.closest('[data-recipe-rename]');
+  if (renameButton) {
+    const recipes = readRecipes();
+    const recipe = recipes.find(item => item.id === renameButton.dataset.recipeRename);
+    if (!recipe) {
+      renderWorkspaceViews();
+      return showToast('That saved recipe could not be found. Refresh and try again.');
+    }
+    return openRecipeRenameDialog(recipe);
+  }
   const useButton = event.target.closest('[data-recipe-use]');
   if (useButton) return useRecipe(useButton.dataset.recipeUse);
   const deleteButton = event.target.closest('[data-recipe-delete]');
   if (!deleteButton) return;
-  const recipe = readLocalList(recipeStorageKey).find(item => item.id === deleteButton.dataset.recipeDelete);
-  if (!recipe || !window.confirm(`Delete the saved recipe “${recipe.name}”?`)) return;
-  const updatedRecipes = readLocalList(recipeStorageKey).filter(item => item.id !== recipe.id);
-  if (!writeLocalList(recipeStorageKey, updatedRecipes)) return;
-  renderWorkspaceViews();
-  addActivity('Recipe deleted', recipe.name);
-  showToast(`Deleted “${recipe.name}”`);
+  const recipes = readRecipes();
+  const recipe = recipes.find(item => item.id === deleteButton.dataset.recipeDelete);
+  if (!recipe) {
+    renderWorkspaceViews();
+    return showToast('That saved recipe could not be found. Refresh and try again.');
+  }
+  openRecipeDeleteDialog([recipe]);
+});
+document.getElementById('recipeList').addEventListener('change', event => {
+  const checkbox = event.target.closest('[data-recipe-select]');
+  if (!checkbox) return;
+  if (checkbox.checked) selectedRecipeIds.add(checkbox.dataset.recipeSelect);
+  else selectedRecipeIds.delete(checkbox.dataset.recipeSelect);
+  checkbox.closest('.recipe-card')?.classList.toggle('is-selected', checkbox.checked);
+  syncRecipeSelectionControls(readRecipes());
 });
 document.getElementById('clearHistory').addEventListener('click', () => {
   if (!readLocalList(activityStorageKey).length) return showToast('History is already empty');
-  if (!window.confirm('Clear local notebook activity from this browser?')) return;
+  openModal('clearHistoryModal', 'confirmClearHistory');
+});
+document.getElementById('clearHistoryForm').addEventListener('submit', event => {
+  event.preventDefault();
   if (!writeLocalList(activityStorageKey, [])) return;
+  closeModal(document.getElementById('clearHistoryModal'));
   renderWorkspaceViews();
   showToast('Local activity history cleared');
 });

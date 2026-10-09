@@ -79,7 +79,7 @@ You can also run the **Build Windows app** workflow from the repository's GitHub
 
 ## Open the macOS app
 
-Use `LakeLoom-macOS-arm64-v2.zip` on an Apple Silicon Mac. Download the ZIP, double-click it to extract `LakeLoom.app`, then Control-click `LakeLoom.app` and choose **Open**. Confirm **Open** if macOS asks. LakeLoom starts its local server and opens the UI in your default browser. It uses port 8000 when available and chooses a free port automatically when 8000 is already in use.
+Use `LakeLoom-macOS-arm64-v14.zip` on an Apple Silicon Mac. Download the ZIP, double-click it to extract `LakeLoom.app`, then Control-click `LakeLoom.app` and choose **Open**. Confirm **Open** if macOS asks. LakeLoom starts its local server and opens the UI in your default browser. It uses port 8000 when available and chooses a free port automatically when 8000 is already in use.
 
 If macOS blocks the app, try opening it once, then go to **System Settings → Privacy & Security** and choose **Open Anyway** for LakeLoom. Startup details are logged at `~/Library/Logs/LakeLoom/launcher.log`.
 

@@ -44,7 +44,7 @@ Dynamic pivot columns, nested fields that cannot be determined locally, manual n
 The searchable transformation library is organized into:
 
 - **Select & shape:** select, create, rename, remove, and standardize columns
-- **Data quality:** null handling, duplicate removal, key deduplication, and latest records
+- **Data quality:** null handling, duplicate-row removal, key deduplication, and latest records
 - **Filter & sort:** filter expressions, sorting, and row limits
 - **Columns & expressions:** text, numeric, conditional, array, map, and JSON functions
 - **Date & time:** parsing, formatting, comparison, and date shifting
@@ -105,7 +105,7 @@ The **Engineering modules** category adds common production-pipeline building bl
 
 - **Profile DataFrame:** reports per-column null and distinct counts and summary statistics; users can choose columns and a sample fraction.
 - **Data quality rules:** evaluates named Spark SQL conditions, creates valid and failed DataFrames, and records which rules failed.
-- **Join another DataFrame:** reads a table and joins on configurable left-to-right keys using a selected join type.
+- **Join or union DataFrames:** combines configurable left and right DataFrame variables through mapped join keys, positional union, union all, or name-based union with optional missing-column support.
 - **Branch the pipeline:** creates matching and nonmatching DataFrames from a condition.
 - **Capture rejected records:** separates invalid rows and attaches a rejection reason.
 - **Compare target schema:** displays source and target field types and differences. The merge option adds `mergeSchema` guidance for a Delta write; it does not perform the write by itself.

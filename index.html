@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=47" />
   </head>
   <body>
     <div class="app-shell">
@@ -29,7 +29,7 @@
         </nav>
 
         <div class="side-label connections-label">NOTEBOOK TARGET</div>
-        <div class="connection-row"><span class="connection-status offline"></span><span>Databricks · not connected</span><span class="connected">PySpark</span></div>
+        <div class="connection-row" id="sidebarConnection"><span class="connection-status offline" id="sidebarConnectionDot"></span><span id="sidebarConnectionText">Databricks · checking</span><span class="connected">PySpark</span></div>
 
         <div class="sidebar-bottom">
           <button class="user-row" id="userMenuButton" type="button" aria-haspopup="dialog" aria-controls="authModal"><div class="avatar" id="userAvatar">GU</div><div class="user-copy"><strong id="currentUserName">Guest user</strong><span id="currentUserRole">Checking Databricks SSO</span></div><span class="more" aria-hidden="true">···</span></button>
@@ -82,7 +82,7 @@
             </div>
             <div class="source-fields">
               <label class="field source-format" id="sourceFormatField"><span id="sourceFormatLabel">File format <small>(detected automatically)</small></span><select id="sourceFormat"><option value="delta">Delta</option><option value="csv">CSV</option><option value="json">JSON</option><option value="text">Text (TXT)</option><option value="parquet">Parquet</option><option value="avro">Avro</option><option value="orc">ORC</option><option value="iceberg">Iceberg</option></select></label>
-              <label class="field source-path"><span id="sourcePathLabel">Databricks table or storage path</span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="sourcePath" value="catalog.schema.your_table" spellcheck="false" /></div></label>
+              <label class="field source-path"><span id="sourcePathLabel">Databricks table or storage path</span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="sourcePath" value="" placeholder="catalog.schema.table or abfss://container@account.dfs.core.windows.net/path" spellcheck="false" /></div><small class="source-path-hint" id="sourcePathHint">ADLS Gen2 paths beginning with abfss:// are supported when Databricks has permission to the external location.</small></label>
               <label class="field source-df"><span>DataFrame name</span><input id="dataframeName" value="df" spellcheck="false" /></label>
               <label class="field source-delta-version" id="sourceDeltaVersionField"><span id="sourceVersionLabel">Delta version as of <small>(optional)</small></span><input id="sourceDeltaVersion" type="number" min="0" step="1" placeholder="Latest version" /><small class="setting-hint" id="sourceVersionHint">Read a historical Delta table snapshot, such as version 2.</small></label>
             </div>
@@ -123,8 +123,8 @@
               <div class="empty-state" id="emptyState" hidden><span>⌕</span><strong>No matching transformations</strong><small>Try another search term or choose a different category.</small></div>
               <div class="tip-row"><span class="tip-spark">✳</span><span><strong>Sample values are prefilled</strong> — Checked options generate PySpark. Adjust the example columns and expressions to match your data before running.</span></div>
               <section class="module-hub" aria-labelledby="moduleHubTitle">
-                <div class="module-hub-heading"><div><span>PIPELINE TOOLS</span><h3 id="moduleHubTitle">Build, inspect, and improve</h3></div><button id="toggleModuleHub" class="module-toggle" type="button" aria-expanded="true" aria-controls="moduleHubContent"><span class="module-toggle-icon">⌃</span></button></div>
-                <div id="moduleHubContent">
+                <div class="module-hub-heading"><div><span>PIPELINE TOOLS</span><h3 id="moduleHubTitle">Build, inspect, and improve</h3></div><button id="toggleModuleHub" class="module-toggle" type="button" aria-expanded="false" aria-controls="moduleHubContent"><span class="module-toggle-icon">⌄</span></button></div>
+                <div id="moduleHubContent" hidden>
                   <div class="pipeline-visual" id="pipelineVisual"><span class="pipeline-empty">Select transformations to build the visual pipeline.</span></div>
                   <div class="advisor-panel"><div><strong>Performance advisor</strong><span id="advisorCount">0 suggestions</span></div><ul id="performanceAdvice"><li>Select transformations to receive pipeline-specific guidance.</li></ul></div>
                   <div class="assistant-panel"><label for="assistantPrompt">Assistant: describe the pipeline you want</label><textarea id="assistantPrompt" placeholder="Example: remove null employee IDs, keep the latest record, profile the result, and add tests"></textarea><div><button id="applyAssistant" class="primary-action" type="button">Suggest steps</button></div><p id="assistantStatus">Suggestions are applied locally and remain reviewable before code generation.</p></div>
@@ -133,8 +133,11 @@
               </section>
             </section>
 
+            <div id="builderResizer" class="builder-resizer" role="separator" aria-label="Resize transformations and live preview" aria-orientation="vertical" aria-valuemin="42" aria-valuemax="72" aria-valuenow="62" tabindex="0"><span aria-hidden="true"></span></div>
+
             <aside class="preview-panel" aria-label="Notebook preview">
               <div class="preview-topline"><div><div class="preview-label"><span class="live-dot"></span>LIVE PREVIEW</div><h2>Your notebook</h2></div><button class="expand-button" id="expandPreview" type="button" aria-label="Open full-page live preview" aria-expanded="false" title="Open full-page live preview"><span class="expand-icon" aria-hidden="true">⤢</span><span class="expand-label" hidden>Back to builder</span></button></div>
+              <div class="preview-body">
               <div class="preview-summary"><span class="summary-icon">⌘</span><span id="summaryText">Add a transformation to get started</span></div>
               <label class="chain-toggle"><input id="chainSelectedSteps" type="checkbox" checked /><span><strong>Chain compatible steps</strong><small>Format select, filter, explode, and column steps as a readable multi-line PySpark pipeline.</small></span></label>
               <div class="code-window">
@@ -157,7 +160,7 @@
                 <div id="outputSettings" class="output-settings" hidden>
                   <div class="output-fields">
                     <label class="field"><span>Output format</span><select id="outputFormat"><option value="delta">Delta</option><option value="csv">CSV</option><option value="json">JSON</option><option value="text">Text (TXT)</option><option value="parquet">Parquet</option><option value="avro">Avro</option><option value="orc">ORC</option><option value="iceberg">Iceberg</option></select></label>
-                    <label class="field output-destination"><span id="outputDestinationLabel">Databricks storage path</span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="outputDestination" placeholder="/Volumes/catalog/schema/volume/cleaned_data" spellcheck="false" /></div></label>
+                    <label class="field output-destination"><span id="outputDestinationLabel">Databricks or ADLS destination</span><div class="input-with-icon"><span class="path-icon">⌕</span><input id="outputDestination" placeholder="abfss://container@account.dfs.core.windows.net/cleaned_data" spellcheck="false" /></div></label>
                     <label class="field" id="outputModeField"><span>Write mode</span><select id="outputMode"><option value="overwrite">Overwrite</option><option value="append">Append</option><option value="errorifexists">Fail if destination exists</option><option value="ignore">Ignore if destination exists</option></select></label>
                     <label class="field" id="icebergModeField" hidden><span>Table write mode</span><select id="icebergMode"><option value="createOrReplace">Create or replace table</option><option value="append">Append to table</option></select></label>
                     <label class="field output-partitions"><span>Partition columns <small>(optional)</small></span><input id="outputPartitions" placeholder="department, year" spellcheck="false" /><small class="output-hint" id="partitionHint">Comma separated. Leave blank for an unpartitioned output.</small></label>
@@ -166,7 +169,8 @@
                     <label class="field" id="csvDelimiterField" hidden><span>CSV delimiter</span><input id="csvDelimiter" value="," maxlength="1" /></label>
                     <label class="output-check-field" id="csvHeaderField" hidden><input id="csvHeader" type="checkbox" checked /><span>Include column headers</span></label>
                   </div>
-                  <p class="output-help" id="outputHelp">Enter a Databricks accessible path. The generated notebook writes the transformed DataFrame when you run it.</p>
+                  <p class="output-help" id="outputHelp">Enter a Databricks-accessible Volume or ADLS Gen2 abfss:// path. The exported notebook writes the transformed DataFrame when Databricks or ADF runs it.</p>
+                  <button class="primary-action direct-write-button" id="writeOutputNow" type="button" disabled>Write directly to destination</button>
                 </div>
               </section>
               <div class="preview-footer"><span class="python-badge">⌘</span><span>PySpark <b>·</b> Databricks target</span><span class="ready-indicator"><i></i> Code ready</span></div>
@@ -184,6 +188,7 @@
               </div>
               <div class="download-format-hint" id="downloadFormatHint">Click Export notebook, then choose a download format. The download starts immediately.</div>
               <div class="preview-note"><span>✦</span> Edit any line in the preview; Reset restores code from your selected options.</div>
+              </div>
             </aside>
           </div>
           </section>
@@ -237,7 +242,7 @@
               <div class="docs-section-heading"><span>REFERENCE</span><h2>Transformation guide</h2><p>Choose the smallest set of steps that produces the required result. Steps execute in their selected order.</p></div>
               <div class="docs-table-wrap"><table class="docs-table"><thead><tr><th>Category</th><th>Use it for</th><th>Common operations and guidance</th></tr></thead><tbody>
                 <tr><td>Select &amp; shape</td><td>Control DataFrame columns and structure.</td><td>Select required fields early for wide sources. Create, rename, remove, and standardize columns.</td></tr>
-                <tr><td>Data quality</td><td>Repair missing or duplicate records.</td><td>Handle nulls, distinct rows, duplicate keys, and latest records. Use stable key and timestamp columns.</td></tr>
+                <tr><td>Data quality</td><td>Repair missing or duplicate records.</td><td>Handle nulls, duplicate rows, duplicate keys, and latest records. Use stable key and timestamp columns.</td></tr>
                 <tr><td>Filter &amp; sort</td><td>Restrict or order records.</td><td>Use PySpark or SQL conditions. Wrap combined PySpark conditions in parentheses when using <code>&amp;</code> and <code>|</code>.</td></tr>
                 <tr><td>Expressions</td><td>Create business fields and clean values.</td><td>Calculated columns, classifications, text cleanup, regex, arrays, maps, and JSON functions.</td></tr>
                 <tr><td>Dates</td><td>Parse, format, compare, and shift dates.</td><td>Use Spark patterns such as <code>yyyy-MM-dd</code> and confirm they match the input text.</td></tr>
@@ -272,7 +277,7 @@
               <div class="docs-detail-grid">
                 <article><h3>Profile data</h3><p>Measures row counts, null counts, distinct values, and descriptive statistics. Profile before and after important transformations to understand their effect.</p></article>
                 <article><h3>Data quality rules</h3><p>Enter validation expressions to separate valid and failed rows. Failed records include the rule names so users can diagnose each problem.</p></article>
-                <article><h3>Join DataFrames</h3><p>Read a lookup or fact table and join it using mapped keys and the selected join type. Select only required columns before large joins where possible.</p></article>
+                <article><h3>Join or union DataFrames</h3><p>Choose any available left and right DataFrame variables, then combine them using a keyed join, positional union, union all, or name-based union. Leave the left name blank to use the active pipeline result.</p></article>
                 <article><h3>Branch and reject records</h3><p>Create named DataFrames from matching and nonmatching rows, or route invalid records to a rejected DataFrame with a reason column.</p></article>
                 <article><h3>Schema evolution</h3><p>Compare source and target schemas before writing. For Delta output, merge mode also generates the <code>mergeSchema</code> writer option.</p></article>
                 <article><h3>Parameters and environments</h3><p>Create Databricks widgets for values such as environment, catalog, dates, or paths. One exported notebook can then run with different settings.</p></article>
@@ -317,8 +322,8 @@
               <button type="button" data-help-topic="export"><span>↓</span><strong>Export and recipes</strong><small>Downloads and saved configurations</small></button>
             </div>
             <section class="help-panel" data-help-section="connection authentication oauth profile serverless databricks">
-              <div class="docs-section-heading"><span>CONNECTION</span><h2>Connect from your local computer</h2><p>The sign-in checker detects an existing Databricks CLI profile. It does not open a new localhost SSO session.</p></div>
-              <ol class="help-steps"><li><strong>Install the CLI</strong><code>brew install databricks/tap/databricks</code></li><li><strong>Authenticate in your browser</strong><code>databricks auth login --host https://&lt;your-workspace-host&gt; --profile DEFAULT</code></li><li><strong>Enable serverless</strong><code>serverless_compute_id = auto</code><small>Add this line under <code>[DEFAULT]</code> in <code>~/.databrickscfg</code>.</small></li><li><strong>Restart LakeLoom</strong><code>export DATABRICKS_CONFIG_PROFILE=DEFAULT<br>python app.py</code></li></ol>
+              <div class="docs-section-heading"><span>CONNECTION</span><h2>Connect from your local computer</h2><p>Use the Connect Databricks dialog to validate an OAuth CLI profile or a personal access token.</p></div>
+              <ol class="help-steps"><li><strong>Install the CLI</strong><code>brew install databricks/tap/databricks</code></li><li><strong>Authenticate in your browser</strong><code>databricks auth login --configure-serverless --host https://&lt;your-workspace-host&gt;</code></li><li><strong>Open the connection dialog</strong><code>Connect Databricks → CLI profile</code><small>Select the profile created by the CLI and choose Connect to Databricks.</small></li><li><strong>Token alternative</strong><code>Connect Databricks → Personal access token</code><small>Enter the HTTPS workspace URL and token. The token is kept only in the running app process.</small></li></ol>
             </section>
             <section class="help-panel" data-help-section="preview run execution disabled error permissions">
               <div class="docs-section-heading"><span>PREVIEW</span><h2>Preview troubleshooting</h2></div>
@@ -357,7 +362,21 @@
         <div class="dialog-mark">⌘</div><h2 id="authDialogTitle">Databricks workspace sign-in</h2>
         <p id="authDialogCopy">Sign-in is managed by Databricks Apps using your workspace SSO. Open this app from Databricks Apps to authenticate.</p>
         <div class="auth-identity-card" id="authIdentityCard" hidden><span class="auth-identity-icon">✓</span><div><strong id="authIdentityName"></strong><small id="authIdentityEmail"></small></div></div>
+        <form class="databricks-connect-form" id="databricksConnectForm" hidden>
+          <label class="field dialog-field"><span>Connection method</span><select id="databricksAuthMethod"><option value="profile">Databricks CLI profile (recommended)</option><option value="token">Personal access token</option></select></label>
+          <div id="databricksProfileFields">
+            <label class="field dialog-field"><span>CLI profile</span><select id="databricksProfile"><option value="">Loading profiles…</option></select></label>
+            <p class="connection-field-help" id="databricksProfileHelp">OAuth profiles are read securely from ~/.databrickscfg.</p>
+          </div>
+          <div id="databricksTokenFields" hidden>
+            <label class="field dialog-field"><span>Workspace URL</span><input id="databricksHost" type="url" inputmode="url" autocomplete="url" placeholder="https://your-workspace.cloud.databricks.com" /></label>
+            <label class="field dialog-field"><span>Personal access token</span><input id="databricksToken" type="password" autocomplete="off" placeholder="Paste token" /></label>
+            <p class="connection-field-help">The token stays in this running app process and is never saved in the browser.</p>
+          </div>
+          <button class="primary-action dialog-primary" id="connectDatabricks" type="submit">Connect to Databricks</button>
+        </form>
         <a class="primary-action dialog-primary" id="authWorkspaceLink" href="#" target="_blank" rel="noopener noreferrer" hidden>Open Databricks workspace <span aria-hidden="true">↗</span></a>
+        <button class="secondary-action dialog-primary" id="disconnectDatabricks" type="button" hidden>Disconnect local connection</button>
         <button class="secondary-action dialog-primary" id="refreshAuth" type="button">Check sign-in status</button>
         <p class="auth-check-status" id="authCheckStatus" role="status" aria-live="polite">This checks for an existing Databricks connection.</p>
         <button class="text-action dialog-cancel" type="button" data-close-modal>Close</button>
@@ -397,7 +416,16 @@
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action dialog-danger" id="confirmClearHistory" type="submit">Clear history</button></div>
       </form>
     </div>
-    <script src="schema.js"></script>
-    <script src="app.js"></script>
+    <div class="modal-backdrop" id="writeOutputModal" hidden>
+      <form class="dialog-card" id="writeOutputForm" role="alertdialog" aria-modal="true" aria-labelledby="writeOutputDialogTitle" aria-describedby="writeOutputDialogCopy">
+        <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
+        <div class="dialog-mark" aria-hidden="true">⇧</div><h2 id="writeOutputDialogTitle">Write transformed data?</h2>
+        <p id="writeOutputDialogCopy">LakeLoom will run the current transformations in Databricks and write their final DataFrame to the configured destination.</p>
+        <div class="write-confirmation-summary"><span>Destination</span><strong id="writeConfirmationDestination"></strong><span>Format and mode</span><strong id="writeConfirmationMode"></strong></div>
+        <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" id="confirmWriteOutput" type="submit">Write data</button></div>
+      </form>
+    </div>
+    <script src="schema.js?v=41"></script>
+    <script src="app.js?v=46"></script>
   </body>
 </html>

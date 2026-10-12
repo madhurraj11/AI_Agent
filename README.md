@@ -2,7 +2,7 @@
 
 This project is a Databricks Apps application with a local development mode. In Databricks Apps, the Flask backend reads identity headers forwarded by the Apps proxy and reports the current user's name to the UI. It never sends the forwarded access token to the browser.
 
-The **Run preview** action uses Databricks Connect 15.4 with serverless compute. In Databricks Apps, it runs as the app's service principal; all app users share that identity, so grant it only the serverless-compute and source-table or storage permissions the app needs. Locally, it uses the Databricks Connect profile configured for the user running Flask. The UI remains in guest mode and never receives credentials. Preview returns at most 100 rows, skips output writes, and does not run Delta table management or SCD merge steps.
+The **Run preview** action uses Databricks Connect 15.4 with serverless compute. In Databricks Apps, it runs as the app's service principal; all app users share that identity, so grant it only the serverless-compute and source-table or storage permissions the app needs. Locally, it uses the Databricks Connect profile configured for the user running Flask. The UI remains in guest mode and never receives credentials. Preview returns at most 100 rows, skips output writes, and does not run Delta table management steps.
 
 ## Run locally
 
@@ -17,7 +17,9 @@ python -m pip install -r requirements.txt
 
 Python 3.13 is incompatible with NumPy 1.26.4, which can be selected by this dependency stack. If installation reports a NumPy compiler or metadata-generation error, use the Python 3.11 environment above. Do not install standalone `pyspark` alongside `databricks-connect`; Databricks Connect provides the PySpark modules.
 
-Configure a Databricks Connect profile for serverless compute, then run `python app.py` and open `http://localhost:8000`:
+Run `python app.py`, open `http://localhost:8000`, and choose **Connect Databricks**. Select an existing CLI profile, or choose **Personal access token** and enter the workspace URL and token. LakeLoom validates the identity before enabling preview execution.
+
+For the recommended OAuth profile method, create a serverless profile first:
 
 ```bash
 databricks auth login --configure-serverless --host https://<your-workspace-host>
@@ -26,11 +28,15 @@ python app.py
 
 If port 8000 is already in use, the local server picks a free port and prints its address in the terminal.
 
-Complete the OAuth sign-in in the browser and use the `DEFAULT` profile, or set `DATABRICKS_CONFIG_PROFILE` to your profile name before starting LakeLoom. The preview uses your Databricks user permissions. Without a configured profile, the Run preview button stays disabled and explains how to connect.
+Complete the OAuth sign-in in the browser, then select that profile in LakeLoom. The preview uses your Databricks user permissions. Credentials stay in the server process and are never stored in browser storage or returned by the session API.
 
 ## Inspect source columns
 
 Selecting local files automatically detects CSV, JSON, TXT, Parquet, Avro, or ORC from the file extension and displays the source columns and data types. **Browse folder** detects Delta from `_delta_log` and Iceberg from its metadata directory. The detected format remains editable when an extension is misleading. Files are sent to the app backend for inspection without saving them or uploading them to Databricks. CSV and JSON types are inferred from up to 1,000 records per file; Parquet, ORC, Avro, Delta, and Iceberg use their stored metadata. TXT sources have one string column named `value`. Local inspection supports selections up to 60 MB; Delta checkpoint-only folders and larger sources can use **Load from Databricks** with a configured connection and accessible table or path.
+
+### Azure Data Factory and ADLS Gen2
+
+For an Azure pipeline, enter the ADLS Gen2 source as an `abfss://` URI, choose the matching source format, configure transformations, and enable **Include write step** with the destination URI. For example, a Delta destination can be `abfss://finalcleandata@skpb30adls.dfs.core.windows.net/deltab31`. Export the Databricks notebook and run it from an Azure Data Factory Databricks Notebook activity. ADF orchestrates the run; Databricks performs the Spark read, transformations, and write. The Databricks identity must have read and write access through a Unity Catalog storage credential and external location, or an equivalent workspace storage configuration.
 
 Generated source readers use one chained statement for every format. For example, JSON uses `df = spark.read.format("json").option("multiline", "true").load(path)` and CSV includes its header and schema-inference options in the same statement. Multiline JSON allows one document to span several lines. Spark can still read newline-delimited JSON with this setting, although very large JSON documents are usually more efficient when stored as one record per line.
 
@@ -46,7 +52,7 @@ The new DataFrame option includes **Start new DataFrame from**: choose **Current
 
 To keep intermediate results, select your first transformations (for example, four), select **Continue in a new DataFrame** under **DataFrame tools**, enter a name such as `df_next`, then select the remaining transformations. Use **Add DataFrame step** to add more boundaries with separate names, such as `df_part`. Each generated assignment preserves its preceding DataFrame, and later steps and output writing use the most recent DataFrame. All completed DataFrames are displayed in the final action cell. These are lazy DataFrame references, not copies, caches, or checkpoints. Step order follows the order in which options were selected; uncheck and reselect options to change that order.
 
-DataFrame transformations retain their selected order. Delta table operations and SCD actions run after those transformations, retaining their relative order. Output writing follows these operations, and all generated `display` calls appear in the final notebook cell. SCD null/duplicate checks stay immediately before their merge or write, since those actions validate the operation's inputs. This ordering also means an SCD merge consumes the completed source pipeline even when it was selected before other transformations.
+DataFrame transformations, including SCD Type 1 and Type 2, retain their selected order. Each SCD step combines a source DataFrame with a target DataFrame and assigns the result back to the target variable. Delta table management operations run after DataFrame transformations. Output writing follows these operations, and generated `display` calls appear in the final notebook cell.
 
 Generated notebooks batch independent arithmetic mappings in calculated-column and date-expression steps using `withColumns`. References to earlier outputs and repeated output names start a new batch; complex SQL and function expressions stay sequential. The selected transformation order is preserved because moving filters, sorts, windows, or aggregations can change results. This reduces projection-plan overhead for eligible mappings; execution time still depends on data size, shuffles, storage, and Databricks compute. Manually edited notebook code is not automatically optimized.
 
@@ -56,7 +62,7 @@ The **Engineering modules** category adds production pipeline building blocks di
 
 - **Data profiling** generates row counts, null counts, distinct counts, and descriptive statistics.
 - **Data quality rules** split valid and failed records and attach the failed rule names.
-- **Join DataFrames** reads another table and joins it with configurable keys and join type.
+- **Join or union DataFrames** combines configurable left and right DataFrame variables using a keyed join, `union`, `unionAll`, or `unionByName`. A blank left name uses the active pipeline result.
 - **Pipeline branching** creates named matching and nonmatching DataFrames without copying data.
 - **Rejected records** route invalid rows to a separate DataFrame with a rejection reason.
 - **Schema evolution** compares source and target fields and can enable Delta `mergeSchema` output.
@@ -79,7 +85,7 @@ You can also run the **Build Windows app** workflow from the repository's GitHub
 
 ## Open the macOS app
 
-Use `LakeLoom-macOS-arm64-v14.zip` on an Apple Silicon Mac. Download the ZIP, double-click it to extract `LakeLoom.app`, then Control-click `LakeLoom.app` and choose **Open**. Confirm **Open** if macOS asks. LakeLoom starts its local server and opens the UI in your default browser. It uses port 8000 when available and chooses a free port automatically when 8000 is already in use.
+Use `LakeLoom-macOS-arm64-v40.zip` on an Apple Silicon Mac. Download the ZIP, double-click it to extract `LakeLoom.app`, then Control-click `LakeLoom.app` and choose **Open**. Confirm **Open** if macOS asks. LakeLoom starts its local server and opens the UI in your default browser. It uses port 8000 when available and chooses a free port automatically when 8000 is already in use.
 
 If macOS blocks the app, try opening it once, then go to **System Settings → Privacy & Security** and choose **Open Anyway** for LakeLoom. Startup details are logged at `~/Library/Logs/LakeLoom/launcher.log`.
 

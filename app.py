@@ -3,6 +3,7 @@
 import os
 import ast
 import builtins
+import configparser
 import json
 import re
 import sys
@@ -41,6 +42,8 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
 _spark_session = None
 _spark_session_lock = threading.Lock()
+_databricks_config = None
+_databricks_connection = {}
 _preview_run_lock = threading.Lock()
 _SAFE_IMPORTS = {
     "json",
@@ -227,7 +230,11 @@ def _get_spark_session():
             if _spark_session is None:
                 from databricks.connect import DatabricksSession
 
-                _spark_session = DatabricksSession.builder.serverless().getOrCreate()
+                builder = DatabricksSession.builder
+                if _databricks_config is not None:
+                    _spark_session = builder.sdkConfig(_databricks_config).getOrCreate()
+                else:
+                    _spark_session = builder.serverless().getOrCreate()
     return _spark_session
 
 
@@ -236,9 +243,57 @@ def _has_databricks_connect_config():
     try:
         from databricks.sdk.core import Config
 
-        host = Config().host or ""
+        config = _databricks_config or Config()
+        host = config.host or ""
         parsed_host = urlsplit(host)
         return parsed_host.scheme == "https" and bool(parsed_host.hostname)
+    except Exception:
+        return False
+
+
+def _clean_workspace_url(value):
+    value = str(value or "").strip().rstrip("/")
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Enter a valid HTTPS Databricks workspace URL.")
+    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        raise ValueError("Enter only the workspace URL, without a path or query string.")
+    return urlunsplit(("https", parsed.netloc, "", "", ""))
+
+
+def _local_profiles():
+    """Return safe profile metadata; credentials never leave the server process."""
+    path = Path(os.environ.get("DATABRICKS_CONFIG_FILE", "~/.databrickscfg")).expanduser()
+    if not path.is_file():
+        return []
+    parser = configparser.RawConfigParser()
+    try:
+        parser.read(path)
+    except (OSError, configparser.Error):
+        return []
+    profiles = []
+    candidates = [("DEFAULT", parser.defaults()), *((name, dict(parser.items(name))) for name in parser.sections())]
+    for name, values in candidates:
+        host = str(values.get("host", "")).strip()
+        try:
+            host = _clean_workspace_url(host)
+        except ValueError:
+            continue
+        profiles.append({"name": name, "host": host})
+    return profiles
+
+
+def _require_local_connection_request():
+    if os.environ.get("DATABRICKS_APP_NAME"):
+        abort(404)
+    if request.headers.get("X-LakeLoom-Request") != "1":
+        abort(403)
+
+
+def _spark_case_sensitive(session):
+    """Spark Connect serverless does not expose every runtime SQL configuration."""
+    try:
+        return str(session.conf.get("spark.sql.caseSensitive", "false")).lower() == "true"
     except Exception:
         return False
 
@@ -276,25 +331,127 @@ def session_status():
     user_id = headers.get("x-forwarded-user", "").strip()[:256]
     preferred_username = headers.get("x-forwarded-preferred-username", "").strip()[:256]
     email = headers.get("x-forwarded-email", "").strip()[:320]
+    forwarded_display_name = (
+        headers.get("x-forwarded-display-name", "").strip()
+        or headers.get("x-forwarded-name", "").strip()
+    )[:256]
     authenticated = running_in_databricks_apps and bool(user_id or preferred_username or email)
     local_connect_ready = not running_in_databricks_apps and _has_databricks_connect_config()
+    local_connected = not running_in_databricks_apps and bool(_databricks_connection.get("connected"))
 
     workspace_url = ""
-    configured_host = os.environ.get("DATABRICKS_HOST", "").strip()
+    configured_host = _databricks_connection.get("host") or os.environ.get("DATABRICKS_HOST", "").strip()
+    if not configured_host and _databricks_config is not None:
+        configured_host = _databricks_config.host or ""
     parsed_host = urlsplit(configured_host)
     if parsed_host.scheme == "https" and parsed_host.hostname and not parsed_host.username and not parsed_host.password:
         workspace_url = urlunsplit(("https", parsed_host.netloc, "", "", ""))
 
     return jsonify(
-        authenticated=authenticated,
+        authenticated=authenticated or local_connected,
         databricksApp=running_in_databricks_apps,
         previewAvailable=running_in_databricks_apps or local_connect_ready,
         localConnectReady=local_connect_ready,
-        displayName=(preferred_username or email or user_id) if authenticated else "",
-        email=email if authenticated else "",
+        localConnected=local_connected,
+        connectionMethod=_databricks_connection.get("method", ""),
+        displayName=(forwarded_display_name or preferred_username or email or user_id) if authenticated else _databricks_connection.get("displayName", ""),
+        email=email if authenticated else _databricks_connection.get("email", ""),
         userId=user_id if authenticated else "",
         workspaceUrl=workspace_url,
     )
+
+
+@app.get("/api/databricks/profiles")
+def databricks_profiles():
+    _require_local_connection_request()
+    return jsonify(profiles=_local_profiles())
+
+
+@app.post("/api/databricks/connect")
+def connect_databricks():
+    global _databricks_config, _databricks_connection, _spark_session
+    _require_local_connection_request()
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify(error="Send connection settings as JSON."), 400
+    method = str(payload.get("method", "profile")).strip().lower()
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.core import Config
+
+        if method == "profile":
+            profile = str(payload.get("profile", "")).strip()
+            if not profile or len(profile) > 128:
+                raise ValueError("Choose a Databricks CLI profile.")
+            config = Config(profile=profile, serverless_compute_id="auto")
+        elif method == "token":
+            host = _clean_workspace_url(payload.get("host"))
+            token = str(payload.get("token", "")).strip()
+            if not token or len(token) > 4096:
+                raise ValueError("Enter a valid personal access token.")
+            config = Config(host=host, token=token, auth_type="pat", serverless_compute_id="auto")
+            profile = ""
+        else:
+            raise ValueError("Choose a supported connection method.")
+
+        host = _clean_workspace_url(config.host)
+        identity = WorkspaceClient(config=config).current_user.me()
+        identity_name = getattr(identity, "name", None)
+        formatted_name = str(getattr(identity_name, "formatted", "") or "").strip()
+        given_name = str(getattr(identity_name, "given_name", "") or "").strip()
+        family_name = str(getattr(identity_name, "family_name", "") or "").strip()
+        structured_name = " ".join(part for part in (given_name, family_name) if part)
+        display_name = str(
+            formatted_name
+            or structured_name
+            or getattr(identity, "display_name", "")
+            or getattr(identity, "user_name", "")
+            or "Databricks user"
+        )[:256]
+        email_address = str(getattr(identity, "user_name", "") or "")[:320]
+        from databricks.connect import DatabricksSession
+
+        spark_builder = DatabricksSession.Builder().validateSession(True)
+        if method == "token":
+            spark_builder = spark_builder.host(host).token(token).serverless()
+        else:
+            spark_builder = spark_builder.profile(profile).serverless()
+        spark_session = spark_builder.getOrCreate()
+        with _spark_session_lock:
+            _spark_session = spark_session
+            _databricks_config = config
+            _databricks_connection = {
+                "connected": True,
+                "host": host,
+                "method": method,
+                "profile": profile,
+                "displayName": display_name,
+                "email": email_address,
+            }
+        return jsonify(connected=True, displayName=display_name, workspaceUrl=host)
+    except ValueError as exc:
+        message = str(exc)
+        supplied_token = str(payload.get("token", "")).strip()
+        if supplied_token:
+            message = message.replace(supplied_token, "[redacted]")
+        return jsonify(error=message), 400
+    except Exception as exc:
+        message = str(exc).strip().splitlines()[0][:300]
+        supplied_token = str(payload.get("token", "")).strip()
+        if supplied_token:
+            message = message.replace(supplied_token, "[redacted]")
+        return jsonify(error=message or "Databricks rejected the connection settings."), 401
+
+
+@app.post("/api/databricks/disconnect")
+def disconnect_databricks():
+    global _databricks_config, _databricks_connection, _spark_session
+    _require_local_connection_request()
+    with _spark_session_lock:
+        _spark_session = None
+        _databricks_config = None
+        _databricks_connection = {}
+    return jsonify(disconnected=True)
 
 
 @app.post("/api/source-schema")
@@ -323,6 +480,8 @@ def source_schema():
         version = str(payload.get("version", "")) if source_format == "delta" else ""
         if not isinstance(source_format, str) or source_format not in _READ_FORMATS or not isinstance(path, str) or not path.strip() or len(path) > 4096:
             return jsonify(error="Enter a supported source format and a valid Databricks table or path."), 400
+        if path.strip().lower() in {"catalog.schema.your_table", "catalog.schema.table", "your_table"}:
+            return jsonify(error="Replace the example with an existing table name, such as catalog.schema.table, or a Databricks-accessible storage path."), 400
         if path.lower().startswith(("file:", "jdbc:")) or (version and not re.fullmatch(r"\d+", version)):
             return jsonify(error="Use a Databricks-accessible source and a non-negative Delta version."), 400
         with _preview_run_lock:
@@ -337,14 +496,17 @@ def source_schema():
                     reader = reader.option("header", "true").option("inferSchema", "true")
                 dataframe = reader.load(path.strip())
             columns = spark_columns(dataframe.schema)
-        return jsonify(columns=columns, inferred=False, origin="databricks", caseSensitive=str(_get_spark_session().conf.get("spark.sql.caseSensitive", "false")).lower() == "true")
+        return jsonify(columns=columns, inferred=False, origin="databricks", caseSensitive=_spark_case_sensitive(_get_spark_session()))
     except (ValueError, UnicodeError, KeyError) as error:
         return jsonify(error=f"Could not read the source schema: {str(error)[:500]}"), 400
     except ImportError:
         return jsonify(error="Install the updated requirements.txt to enable schema inspection for this format."), 503
     except Exception as error:
         app.logger.exception("Source schema inspection failed")
-        return jsonify(error=f"Could not read the source schema: {str(error)[:500]}"), 422
+        message = str(error)
+        if "TABLE_OR_VIEW_NOT_FOUND" in message or "UnresolvedRelation" in message:
+            return jsonify(error=f"Table or view not found. Check the catalog, schema, and table name, and confirm your Databricks user can read it."), 404
+        return jsonify(error=f"Could not read the source schema: {message[:500]}"), 422
 
 
 @app.post("/api/run-preview")
@@ -418,6 +580,91 @@ def run_preview():
         # Return a concise error to the builder; keep workspace internals and tracebacks server-side.
         app.logger.exception("Databricks preview execution failed")
         return jsonify(error=f"Databricks could not run this preview: {str(error)[:500]}"), 422
+
+
+@app.post("/api/write-output")
+def write_output():
+    """Run the validated read/transform pipeline and write its final DataFrame."""
+    if request.content_length and request.content_length > 100_000:
+        abort(413)
+    running_in_apps = bool(os.environ.get("DATABRICKS_APP_NAME"))
+    if running_in_apps:
+        if not any(request.headers.get(name, "").strip() for name in ("x-forwarded-user", "x-forwarded-preferred-username", "x-forwarded-email")):
+            abort(401)
+    else:
+        if request.headers.get("X-LakeLoom-Request") != "1":
+            abort(403)
+        if not _has_databricks_connect_config():
+            return jsonify(error="Connect LakeLoom to Databricks before writing output."), 503
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="Send output settings as a JSON object."), 400
+    code = payload.get("code")
+    dataframe_name = payload.get("dataframeName", "df")
+    destination = str(payload.get("destination", "")).strip()
+    output_format = str(payload.get("format", "")).strip().lower()
+    mode = str(payload.get("mode", "")).strip().lower()
+    partitions = payload.get("partitions", [])
+    compression = str(payload.get("compression", "")).strip().lower()
+    if not isinstance(code, str) or not code.strip() or len(code) > 90_000:
+        return jsonify(error="The generated transformation code is empty or too large."), 400
+    if not isinstance(dataframe_name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", dataframe_name):
+        return jsonify(error="Use a valid DataFrame name before writing output."), 400
+    if not destination.startswith(("abfss://", "/Volumes/")) or len(destination) > 4096:
+        return jsonify(error="Direct writes require an abfss:// ADLS path or a /Volumes/ path."), 400
+    if output_format not in {"delta", "csv", "json", "text", "parquet", "avro", "orc"}:
+        return jsonify(error="Choose a supported file or Delta output format."), 400
+    if mode not in {"overwrite", "append", "errorifexists", "ignore"}:
+        return jsonify(error="Choose a supported write mode."), 400
+    if not isinstance(partitions, list) or len(partitions) > 20 or any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in partitions):
+        return jsonify(error="Partition columns must be valid column names."), 400
+    if compression not in {"", "snappy", "gzip", "zstd", "bzip2"}:
+        return jsonify(error="Choose a supported compression option."), 400
+    try:
+        syntax_tree = ast.parse(code, filename="lake-loom-write.py", mode="exec")
+        _PreviewCodeValidator().visit(syntax_tree)
+    except (SyntaxError, ValueError) as error:
+        return jsonify(error=f"Output code is not supported: {error}"), 400
+
+    try:
+        from pyspark.sql import DataFrame
+        from pyspark.sql import functions as F
+
+        with _preview_run_lock:
+            spark = _get_spark_session()
+            displayed_dataframes = []
+
+            def capture_display(value):
+                if isinstance(value, DataFrame):
+                    displayed_dataframes.append(value)
+
+            namespace = {
+                "__builtins__": {"__import__": _safe_preview_import, "isinstance": isinstance, "set": set, "ValueError": ValueError},
+                "spark": spark,
+                "display": capture_display,
+            }
+            syntax_tree = _DisplayMethodNormalizer().visit(syntax_tree)
+            ast.fix_missing_locations(syntax_tree)
+            exec(compile(syntax_tree, "lake-loom-write.py", "exec"), namespace, namespace)
+            result = displayed_dataframes[-1] if displayed_dataframes else namespace.get(dataframe_name)
+            if not isinstance(result, DataFrame):
+                return jsonify(error="The pipeline did not produce a DataFrame to write."), 400
+            writer_frame = result
+            if output_format == "text":
+                writer_frame = result.select(F.to_json(F.struct(*[F.col(column) for column in result.columns])).alias("value"))
+            writer = writer_frame.write.format(output_format).mode(mode)
+            if output_format == "csv":
+                writer = writer.option("header", "true" if payload.get("csvHeader") is True else "false").option("delimiter", str(payload.get("csvDelimiter", ","))[:1] or ",")
+            if compression and output_format != "delta":
+                writer = writer.option("compression", compression)
+            if partitions and output_format == "delta":
+                writer = writer.partitionBy(*partitions)
+            writer.save(destination)
+        return jsonify(completed=True, destination=destination, format=output_format, mode=mode)
+    except Exception as error:
+        app.logger.exception("Databricks output write failed")
+        return jsonify(error=f"Databricks could not write this output: {str(error)[:500]}"), 422
 if __name__ == "__main__":
     # Convenience for local UI work only. Authentication is available when deployed
     # behind the Databricks Apps proxy, not when using Flask's local server.

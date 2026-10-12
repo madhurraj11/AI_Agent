@@ -104,6 +104,15 @@ function renderSchemaType(type) {
 }
 
 async function loadSourceSchema(remote = false) {
+  const sourcePath = document.getElementById('sourcePath');
+  const enteredPath = sourcePath.value.trim();
+  if (remote && (!enteredPath || Object.values(sourcePathExamples).includes(enteredPath))) {
+    const status = document.getElementById('sourceSchemaStatus');
+    status.classList.add('is-error');
+    status.textContent = 'Enter an existing Databricks table name, such as catalog.schema.table, or a Databricks-accessible storage path.';
+    sourcePath.focus();
+    return;
+  }
   const requestId = ++sourceSchemaState.requestId;
   sourceSchemaState.loading = true;
   sourceSchemaState.columns = null;
@@ -120,7 +129,7 @@ async function loadSourceSchema(remote = false) {
     let headers = { Accept: 'application/json' };
     if (remote) {
       headers['Content-Type'] = 'application/json';
-      body = JSON.stringify({ format, version, path: document.getElementById('sourcePath').value.trim() });
+      body = JSON.stringify({ format, version, path: enteredPath });
     } else {
       let files = state.uploads;
       if (format === 'delta') files = files.filter(file => /(?:^|\/)_delta_log\/\d+\.json$/.test(file.webkitRelativePath || file.name));
@@ -317,7 +326,15 @@ function refreshColumnValidation() {
       if (issues.some(issue => issue.id === id)) sourceSchemaState.omittedSteps.add(id);
       continue;
     }
+    if (id === 'scd1' || id === 'scd2') {
+      // SCD steps combine the pipeline with a separately named target DataFrame.
+      // Its schema is unavailable to the browser, so keep the generated step and
+      // let Spark validate the source and target columns together at runtime.
+      uncertain = true;
+      continue;
+    }
     for (const key of ['source', 'otherSource', 'values', 'keys', 'timestamp', 'partition', 'order', 'groups', 'updateColumns', 'trackedColumns', 'effectiveColumn']) {
+      if (id === 'joinFrame' && key === 'keys') continue;
       if (item.fields.some(field => field.key === key)) refs(key);
     }
     if (item.fields.some(field => field.key === 'columns') && !(id === 'selectColumns' && value('mode') === 'range')) refs('columns');
@@ -386,6 +403,7 @@ function refreshColumnValidation() {
       const name = column.name.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
       return [name, { ...column, name }];
     }));
+    if (id === 'joinFrame') uncertain = true;
     if (item.kind || id === 'conditional') {
       let field = {};
       if (item.kind === 'json' && item.presetFn === 'struct') field.children = csvList(value('columns')).map(name => lookup(name) || { name });

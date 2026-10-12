@@ -159,7 +159,7 @@ transformations.push(...textOperations, ...numericOperations, ...dateOperations,
 transformations.push({
   id: 'newDataFrame', category: 'dataframe', icon: '▦', title: 'Continue in a new DataFrame',
   description: 'Keep the current result and apply subsequent selected steps to a new DataFrame.', fields: [
-    { key: 'base', label: 'Start new DataFrame from', type: 'select', value: 'current', options: [['current', 'Current result — keep previous transformations'], ['source', 'Original source — start without previous transformations']] },
+    { key: 'base', label: 'Start new DataFrame from', type: 'select', value: 'current', options: [['current', 'Current result — keep previous transformations'], ['source', 'Original source — start without previous transformations']], wide: true },
     inputField('target', 'New DataFrame name', 'df_next', true, 'df_next', 'Select the steps that should run before this boundary. Add another DataFrame step for a later boundary; each one keeps its own distinct name. These are lazy references, not copies or caches.')
   ]
 });
@@ -184,24 +184,25 @@ transformations.push({
 transformations.push(
   {
     id: 'scd1', category: 'scd', icon: 'S1', title: 'Apply SCD Type 1',
-    description: 'Merge the latest values into a Delta dimension; matched changes replace old values.', fields: [
-      { key: 'targetKind', label: 'Target type', type: 'select', value: 'table', options: [['table', 'Unity Catalog table'], ['path', 'Delta storage path']] },
-      inputField('target', 'Target dimension', 'catalog.schema.dim_employee_scd1', true, 'catalog.schema.dim_employee_scd1', 'On first run this target is initialized from the source DataFrame.'),
-      inputField('keys', 'Business key columns', 'employee_id', true),
-      inputField('updateColumns', 'Columns to update (optional)', 'department, salary, state', true, '', 'Leave blank to update all matched columns.')
+    description: 'Apply current source values to a target DataFrame; matched changes replace old values.', fields: [
+      inputField('sourceFrame', 'Source DataFrame name', 'src_df', false, '', 'Uses src_df when left blank. Enter another DataFrame variable to change it.'),
+      inputField('targetFrame', 'Target DataFrame name', 'tgt_df', true, 'tgt_df', 'The generated result is named final_df.'),
+      inputField('keys', 'Business key columns', 'emp_id', true, 'emp_id'),
+      inputField('lastUpdatedColumn', 'Last updated column', 'last_updated', false, 'last_updated', 'Source values replace target values only when this timestamp is newer, or when the key is new.'),
+      inputField('updateColumns', 'Columns to update', 'name, role', true, 'name, role', 'These source attributes are selected when the source row is newer.')
     ]
   },
   {
     id: 'scd2', category: 'scd', icon: 'S2', title: 'Apply SCD Type 2',
-    description: 'Keep history by expiring the active version and inserting a new version when tracked fields change.', fields: [
-      { key: 'targetKind', label: 'Target type', type: 'select', value: 'table', options: [['table', 'Unity Catalog table'], ['path', 'Delta storage path']] },
-      inputField('target', 'Target dimension', 'catalog.schema.dim_employee_scd2', true, 'catalog.schema.dim_employee_scd2', 'On first run, creates valid_from, valid_to, and is_current columns. Existing targets must contain the configured history columns.'),
-      inputField('keys', 'Business key columns', 'employee_id', true),
-      inputField('trackedColumns', 'Track changes in', 'department, salary, state', true),
-      inputField('effectiveColumn', 'Effective timestamp column (optional)', 'updated_at', false, '', 'Leave blank to use the current timestamp.'),
-      inputField('validFrom', 'Valid from column', 'valid_from'),
-      inputField('validTo', 'Valid to column', 'valid_to'),
-      inputField('currentFlag', 'Current row flag', 'is_current')
+    description: 'Update a history DataFrame by expiring active rows and inserting new versions.', fields: [
+      inputField('sourceFrame', 'Source DataFrame name', 'src_df', false, '', 'Uses src_df when left blank. Enter another DataFrame variable to change it.'),
+      inputField('targetFrame', 'Target history DataFrame name', 'tgt_df', true, 'tgt_df', 'The generated result is named final_target_df.'),
+      inputField('keys', 'Business key columns', 'emp_id', true, 'emp_id'),
+      inputField('attributeColumns', 'Attribute columns', 'name, role', true, 'name, role'),
+      inputField('lastUpdatedColumn', 'Last updated column', 'last_updated', false, 'last_updated', 'A newer source timestamp creates a new active version and expires the old version.'),
+      inputField('validFrom', 'Start date column', 'start_date'),
+      inputField('validTo', 'End date column', 'end_date'),
+      inputField('currentFlag', 'Active row flag', 'is_active')
     ]
   }
 );
@@ -253,7 +254,7 @@ transformations.push(
 transformations.push({
   id: 'createFrameFromSchema', category: 'dataframe', icon: '▦', title: 'Create DataFrame from schema',
   description: 'Build an explicitly typed DataFrame and combine its rows with unionByName.', fields: [
-    inputField('target', 'New DataFrame name', 'sample_df', false, 'sample_df'),
+    inputField('target', 'New DataFrame name', 'sample_df', true, 'sample_df'),
     { key: 'schemaFields', label: 'Column name : Spark type (one per line)', type: 'textarea', value: 'employee_name: string\nage: integer\njob_title: string\ncity: string', placeholder: 'employee_name: string\nage: integer\njob_title: string\ncity: string', wide: true, hint: 'Supported types: string, integer, long, double, float, boolean, date, timestamp.' },
     { key: 'rows', label: 'JSON row arrays (one per line)', type: 'textarea', value: '["Madhur", 25, "Data Engineer", "Bijnor"]', placeholder: '["Madhur", 25, "Data Engineer", "Bijnor"]', wide: true, hint: 'Each row must be a JSON array with values matching the schema column order.' }
   ]
@@ -262,7 +263,7 @@ transformations.push({
 transformations.push(
   { id: 'profileData', category: 'engineering', icon: '◫', title: 'Profile DataFrame', description: 'Generate row counts, summary statistics, null counts, and distinct counts.', fields: [inputField('columns', 'Columns to profile (optional)', 'employee_id, salary, department', true, '', 'Leave blank to profile every column.'), inputField('sampleFraction', 'Sample fraction', '1.0', false, '1.0', 'Use a value between 0 and 1. Use 1.0 for the complete DataFrame.')] },
   { id: 'qualityRules', category: 'engineering', icon: '✓', title: 'Apply data quality rules', description: 'Evaluate named SQL rules and separate valid and failed records.', fields: [inputField('validFrame', 'Valid DataFrame name', 'df_valid'), inputField('failedFrame', 'Failed DataFrame name', 'df_failed'), { key: 'rules', label: 'Rule name -> Spark SQL condition', type: 'textarea', value: 'employee_id_required -> employee_id IS NOT NULL\npositive_salary -> salary > 0', placeholder: 'rule_name -> Spark SQL condition', wide: true, hint: 'All rules must pass for a row to be valid.' }] },
-  { id: 'joinFrame', category: 'engineering', icon: '⋈', title: 'Join another DataFrame', description: 'Read another table and join it to the current pipeline.', fields: [inputField('source', 'Table or view to join', 'catalog.schema.dim_department', true), inputField('rightFrame', 'Right DataFrame name', 'df_lookup'), { key: 'joinType', label: 'Join type', type: 'select', value: 'left', options: [['left', 'Left join'], ['inner', 'Inner join'], ['right', 'Right join'], ['full', 'Full join'], ['left_semi', 'Left semi join'], ['left_anti', 'Left anti join']] }, { key: 'keys', label: 'Left column -> right column', type: 'textarea', value: 'department_id -> department_id', placeholder: 'customer_id -> customer_id', wide: true }] },
+  { id: 'joinFrame', category: 'engineering', icon: '⋈', title: 'Join or union DataFrames', description: 'Combine any two available DataFrames.', fields: [{ key: 'combineMethod', label: 'Combine operation', type: 'select', value: 'join', options: [['join', 'Join'], ['union', 'Union'], ['unionAll', 'Union all'], ['unionByName', 'Union by name']] }, inputField('leftFrame', 'Left DataFrame name (optional)', 'Current pipeline result', false, '', 'Leave blank to use the active pipeline DataFrame, or enter any DataFrame variable created earlier in the notebook.'), inputField('rightFrame', 'Right DataFrame name', 'df_lookup', false, 'df_lookup', 'Enter any DataFrame variable created earlier in the notebook.'), { key: 'joinType', label: 'Join type', type: 'select', value: 'left', options: [['left', 'Left join'], ['inner', 'Inner join'], ['right', 'Right join'], ['full', 'Full join'], ['left_semi', 'Left semi join'], ['left_anti', 'Left anti join']], when: { key: 'combineMethod', value: 'join' } }, { key: 'keys', label: 'Left column -> right column', type: 'textarea', value: 'department_id -> department_id', placeholder: 'customer_id -> customer_id', wide: true, hint: 'Add one key mapping per line.', when: { key: 'combineMethod', value: 'join' } }, { key: 'allowMissingColumns', label: 'Missing columns', type: 'select', value: 'false', options: [['false', 'Require the same column names'], ['true', 'Allow missing columns and fill with null']], wide: true, when: { key: 'combineMethod', value: 'unionByName' } }] },
   { id: 'branchFrame', category: 'engineering', icon: '⑂', title: 'Branch the pipeline', description: 'Create matching and non-matching DataFrames from one condition.', fields: [inputField('condition', 'Spark SQL condition', 'salary > 0', true), inputField('matchFrame', 'Matching DataFrame', 'df_valid'), inputField('otherFrame', 'Other DataFrame', 'df_rejected')] },
   { id: 'schemaEvolution', category: 'engineering', icon: '⇄', title: 'Compare target schema', description: 'Compare source and target fields before enabling schema evolution.', fields: [inputField('target', 'Target table', 'catalog.schema.target_table', true), { key: 'allowEvolution', label: 'Write behavior', type: 'select', value: 'report', options: [['report', 'Report schema differences'], ['merge', 'Enable Delta mergeSchema']] }] },
   { id: 'rejectRecords', category: 'engineering', icon: '!', title: 'Capture rejected records', description: 'Split invalid rows and attach a rejection reason.', fields: [inputField('condition', 'Valid row condition', 'employee_id IS NOT NULL', true), inputField('validFrame', 'Valid DataFrame', 'df_valid'), inputField('rejectedFrame', 'Rejected DataFrame', 'df_rejected'), inputField('reason', 'Rejection reason', 'Missing employee ID', true)] },
@@ -338,6 +339,15 @@ function createNewDataFrameStep(id, target) {
       ? { ...field, value: target, placeholder: target }
       : { ...field })
   };
+}
+
+function insertNewDataFrameStep(item) {
+  const createFromSchemaIndex = transformations.findIndex(operation => operation.id === 'createFrameFromSchema');
+  if (createFromSchemaIndex < 0) transformations.push(item);
+  else transformations.splice(createFromSchemaIndex, 0, item);
+  const createFromSchemaCard = list.querySelector('[data-card="createFrameFromSchema"]');
+  if (createFromSchemaCard) createFromSchemaCard.insertAdjacentHTML('beforebegin', transformationCardMarkup(item));
+  else list.insertAdjacentHTML('beforeend', transformationCardMarkup(item));
 }
 
 const categories = [
@@ -541,28 +551,56 @@ function setView(view) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function identityDisplayName(displayName, email, userId) {
+  const candidate = String(displayName || '').trim();
+  if (candidate && !candidate.includes('@')) return candidate;
+  const address = String(email || candidate || userId || '').trim();
+  if (!address) return 'Databricks user';
+  const localPart = address.split('@')[0].replace(/\d+$/g, '');
+  const words = localPart.split(/[._-]+/).filter(Boolean);
+  return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') || 'Databricks user';
+}
+
 function initialsFor(name) {
-  const parts = String(name || '').trim().split(/[\s@._-]+/).filter(Boolean);
+  const cleanName = String(name || '').split('@')[0];
+  const parts = cleanName.trim().split(/[\s._-]+/).filter(Boolean);
   return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : (parts[0] || 'GU').slice(0, 2)).toUpperCase();
 }
 
 function renderDatabricksSession(session = {}) {
   const authenticated = session.authenticated === true;
   const databricksApp = session.databricksApp === true;
+  const localConnected = session.localConnected === true;
   const previewAvailable = session.previewAvailable === true;
-  const name = authenticated ? (session.displayName || session.email || session.userId || 'Databricks user') : 'Guest user';
+  const name = authenticated ? identityDisplayName(session.displayName, session.email, session.userId) : 'Guest user';
   state.session = { ...session, authenticated, databricksApp, previewAvailable };
 
   const authButton = document.getElementById('authButton');
   authButton.disabled = false;
-  authButton.textContent = authenticated ? 'Workspace account' : 'Sign in with Databricks';
+  authButton.textContent = authenticated ? (localConnected ? 'Databricks connected' : 'Workspace account') : 'Connect Databricks';
   authButton.title = authenticated ? `Signed in as ${name}` : 'Sign in through Databricks workspace SSO';
   document.getElementById('currentUserName').textContent = name;
-  document.getElementById('currentUserRole').textContent = authenticated ? 'Databricks workspace user' : (databricksApp ? 'Workspace sign-in required' : 'Not signed in');
+  document.getElementById('currentUserName').title = name;
+  document.getElementById('currentUserRole').textContent = authenticated
+    ? (localConnected ? 'Local Databricks connection' : 'Databricks workspace user')
+    : (databricksApp ? 'Workspace sign-in required' : 'Not signed in');
   document.getElementById('userAvatar').textContent = authenticated ? initialsFor(name) : 'GU';
-  document.getElementById('workspaceSessionStatus').textContent = authenticated
-    ? 'Databricks Apps · signed in'
-    : (databricksApp ? 'Databricks Apps · sign-in required' : 'Local preview · SSO unavailable');
+  document.getElementById('workspaceSessionStatus').textContent = databricksApp
+    ? (authenticated ? 'Databricks Apps · signed in' : 'Databricks Apps · sign-in required')
+    : localConnected
+      ? 'Databricks Connect · connected'
+      : session.localConnectReady
+        ? 'Databricks Connect · configured'
+        : 'Local preview · not connected';
+  const connectionDot = document.getElementById('sidebarConnectionDot');
+  const connectionText = document.getElementById('sidebarConnectionText');
+  const connectionReady = authenticated || session.localConnectReady === true;
+  connectionDot.classList.toggle('offline', !connectionReady);
+  connectionText.textContent = authenticated
+    ? 'Databricks · connected'
+    : session.localConnectReady
+      ? 'Databricks · configured'
+      : 'Databricks · not connected';
 
   const identityCard = document.getElementById('authIdentityCard');
   const identityName = document.getElementById('authIdentityName');
@@ -577,9 +615,15 @@ function renderDatabricksSession(session = {}) {
   identityEmail.textContent = session.email || (authenticated ? 'Authenticated by Databricks workspace SSO' : '');
   workspaceLink.hidden = !workspaceUrl;
   workspaceLink.href = workspaceUrl || '#';
+  const connectForm = document.getElementById('databricksConnectForm');
+  const disconnectButton = document.getElementById('disconnectDatabricks');
+  connectForm.hidden = databricksApp || localConnected;
+  disconnectButton.hidden = !localConnected;
   if (authenticated) {
-    authTitle.textContent = 'Connected with Databricks SSO';
-    authCopy.textContent = 'Your workspace identity is active for this app. To sign out, use the Databricks workspace profile menu and choose Sign out.';
+    authTitle.textContent = localConnected ? 'Connected to Databricks' : 'Connected with Databricks SSO';
+    authCopy.textContent = localConnected
+      ? `LakeLoom validated this ${session.connectionMethod === 'token' ? 'token' : 'CLI profile'} and will use it for preview runs.`
+      : 'Your workspace identity is active for this app. To sign out, use the Databricks workspace profile menu and choose Sign out.';
     workspaceLink.firstChild.textContent = 'Open Databricks workspace ';
   } else if (databricksApp) {
     authTitle.textContent = 'Databricks workspace sign-in';
@@ -608,6 +652,38 @@ function renderDatabricksSession(session = {}) {
   }
   updateRunAvailability();
   updateSchemaAvailability();
+  updateDirectWriteAvailability();
+}
+
+async function loadDatabricksProfiles() {
+  if (state.session?.databricksApp) return;
+  const select = document.getElementById('databricksProfile');
+  const help = document.getElementById('databricksProfileHelp');
+  try {
+    const response = await fetch('/api/databricks/profiles', {
+      credentials: 'same-origin', cache: 'no-store',
+      headers: { Accept: 'application/json', 'X-LakeLoom-Request': '1' }
+    });
+    if (!response.ok) throw new Error('Profiles are unavailable.');
+    const profiles = (await response.json()).profiles || [];
+    select.innerHTML = profiles.length
+      ? profiles.map(profile => `<option value="${escapeHtml(profile.name)}">${escapeHtml(profile.name)} — ${escapeHtml(profile.host)}</option>`).join('')
+      : '<option value="">No CLI profiles found</option>';
+    select.disabled = profiles.length === 0;
+    help.textContent = profiles.length
+      ? 'Select a profile. LakeLoom validates it before enabling previews.'
+      : 'No profile was found. Run “databricks auth login --configure-serverless --host https://your-workspace” in Terminal, or use a personal access token.';
+  } catch (error) {
+    select.innerHTML = '<option value="">Profiles unavailable</option>';
+    select.disabled = true;
+    help.textContent = error.message;
+  }
+}
+
+function syncDatabricksAuthFields() {
+  const useToken = document.getElementById('databricksAuthMethod').value === 'token';
+  document.getElementById('databricksProfileFields').hidden = useToken;
+  document.getElementById('databricksTokenFields').hidden = !useToken;
 }
 
 function updateRunAvailability() {
@@ -628,7 +704,7 @@ function updateRunAvailability() {
   button.textContent = '▶ Run preview';
   if (stepButton) stepButton.textContent = 'Run step preview';
 
-  const deltaOperationSelected = [...state.selected].some(id => id.startsWith('delta') || id.startsWith('scd'));
+  const deltaOperationSelected = [...state.selected].some(id => id.startsWith('delta'));
   if (!state.session.previewAvailable) {
     button.disabled = true;
     if (stepButton) {
@@ -647,7 +723,7 @@ function updateRunAvailability() {
   } else if (deltaOperationSelected) {
     button.disabled = true;
     if (stepButton) stepButton.disabled = true;
-    help.textContent = 'Remove Delta table management or SCD steps to run a read-only data preview.';
+    help.textContent = 'Remove Delta table management steps to run a read-only data preview.';
     help.classList.add('is-warning');
   } else {
     button.disabled = false;
@@ -734,6 +810,8 @@ const dropdownHelp = {
   'deltaInspect.action': { history: 'Return recent commits, operations, users, timestamps, and version numbers.', detail: 'Return table metadata such as format, location, size, properties, and partition columns.' },
   'deltaCompare.comparison': { except: 'Return distinct rows present in the earlier version but absent from the later version.', exceptAll: 'Return differences while preserving duplicate row counts.' },
   'joinFrame.joinType': { left: 'Keep every current row and matching lookup rows.', inner: 'Keep only rows that match on both sides.', right: 'Keep every lookup row and matching current rows.', full: 'Keep all rows from both sides.', left_semi: 'Keep current rows that have a match without adding lookup columns.', left_anti: 'Keep current rows that do not have a match.' },
+  'joinFrame.combineMethod': { join: 'Match rows using one or more mapped keys.', union: 'Append rows by column position and preserve duplicates.', unionAll: 'Append rows by column position and preserve duplicates using Spark unionAll().', unionByName: 'Append rows by matching column names instead of positions.' },
+  'joinFrame.allowMissingColumns': { false: 'Require both DataFrames to contain the same column names.', true: 'Keep columns found on either side and fill missing values with null.' },
   'schemaEvolution.allowEvolution': { report: 'Compare source and target fields without changing write behavior.', merge: 'Report differences and add mergeSchema guidance for a Delta write.' },
   'incrementalLoad.mode': { watermark: 'Keep records newer than a timestamp watermark.', cdf: 'Read Delta Change Data Feed from a starting version and keep inserts and update post-images.' },
   '*.targetKind': { table: 'Address the Delta target by its Unity Catalog name: catalog.schema.table.', path: 'Address the Delta target by its storage location, such as a /Volumes or cloud path.' }
@@ -775,9 +853,12 @@ function escapeHtml(value) {
 }
 
 function getValue(op, key) {
-  if (sourceSchemaState.generating && sourceSchemaState.cleanedValues?.has(`${op}.${key}`)) return sourceSchemaState.cleanedValues.get(`${op}.${key}`);
   const field = document.querySelector(`[data-op="${op}"][data-key="${key}"]`);
   return field ? field.value.trim() : '';
+}
+
+function validFrameName(name, fallback = '') {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(name || '').trim()) ? String(name).trim() : fallback;
 }
 
 function csvList(value) {
@@ -1082,7 +1163,6 @@ const advancedTransformationIds = new Set(['profileData', 'qualityRules', 'joinF
 
 function addAdvancedTransformationCode(item, frame, lines) {
   const value = key => getValue(item.id, key);
-  const validFrameName = (name, fallback) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : fallback;
   if (item.id === 'profileData') {
     const columns = csvList(value('columns'));
     const fraction = Number(value('sampleFraction'));
@@ -1104,13 +1184,25 @@ function addAdvancedTransformationCode(item, frame, lines) {
     lines.push(`${failedFrame} = ${frame}.filter(~_quality_passes).withColumn("failed_rules", F.array(*[${rules.map(([name, condition]) => `F.when(~F.expr(${pyString(condition)}), F.lit(${pyString(name)}))`).join(', ')}])).withColumn("failed_rules", F.filter(F.col("failed_rules"), lambda x: x.isNotNull()))`);
     lines.push(`display(${validFrame})`, `display(${failedFrame})`);
   } else if (item.id === 'joinFrame') {
-    const source = value('source');
-    const rightFrame = validFrameName(value('rightFrame'), 'df_lookup');
-    const keys = flattenPlanLines(value('keys'));
-    if (!source || !keys.length) return lines.push('# TODO: Add the table to join and at least one left -> right key mapping.');
-    lines.push(`${rightFrame} = spark.table(${pyString(source)})`);
-    const condition = keys.map(([left, right]) => `(F.col(${pyString(`left.${left}`)}) == F.col(${pyString(`right.${right}`)}))`).join(' & ');
-    lines.push(`${frame} = ${frame}.alias("left").join(${rightFrame}.alias("right"), ${condition}, ${pyString(value('joinType') || 'left')})`);
+    const combineMethod = value('combineMethod') || 'join';
+    const requestedLeftFrame = value('leftFrame');
+    const leftFrame = requestedLeftFrame ? validFrameName(requestedLeftFrame, '') : frame;
+    const requestedRightFrame = value('rightFrame');
+    const rightFrame = validFrameName(requestedRightFrame, '');
+    if (!leftFrame) return lines.push('# TODO: Enter a valid left DataFrame variable name or leave it blank for the current pipeline.');
+    if (!rightFrame) return lines.push('# TODO: Enter a valid right DataFrame variable name.');
+    if (combineMethod === 'union') {
+      lines.push(`${frame} = ${leftFrame}.union(${rightFrame})`);
+    } else if (combineMethod === 'unionAll') {
+      lines.push(`${frame} = ${leftFrame}.unionAll(${rightFrame})`);
+    } else if (combineMethod === 'unionByName') {
+      lines.push(`${frame} = ${leftFrame}.unionByName(${rightFrame}, allowMissingColumns=${value('allowMissingColumns') === 'true' ? 'True' : 'False'})`);
+    } else {
+      const keys = flattenPlanLines(value('keys'));
+      if (!keys.length) return lines.push('# TODO: Add at least one left -> right join key mapping.');
+      const condition = keys.map(([left, right]) => `(F.col(${pyString(`left.${left}`)}) == F.col(${pyString(`right.${right}`)}))`).join(' & ');
+      lines.push(`${frame} = ${leftFrame}.alias("left").join(${rightFrame}.alias("right"), ${condition}, ${pyString(value('joinType') || 'left')})`);
+    }
   } else if (item.id === 'branchFrame') {
     const condition = value('condition');
     const matchFrame = validFrameName(value('matchFrame'), 'df_valid');
@@ -1571,148 +1663,72 @@ function addDeltaOperation(item, lines) {
 }
 
 function addScdType1(item, frame, lines) {
-  const target = getValue(item.id, 'target');
+  const requestedSource = cleanLegacyPlaceholderValue(item.id, 'sourceFrame', getValue(item.id, 'sourceFrame'));
+  const sourceFrame = requestedSource ? validFrameName(requestedSource, '') : 'src_df';
+  const targetFrame = validFrameName(getValue(item.id, 'targetFrame'), '');
   const keys = csvList(getValue(item.id, 'keys'));
+  const lastUpdatedColumn = getValue(item.id, 'lastUpdatedColumn');
   const updateColumns = csvList(getValue(item.id, 'updateColumns'));
-  if (!target || !keys.length || new Set(keys).size !== keys.length || new Set(updateColumns).size !== updateColumns.length || updateColumns.some(column => keys.includes(column))) {
-    lines.push('# TODO: Set the Delta target and at least one business key for SCD Type 1.');
+  if (!sourceFrame || !targetFrame || !keys.length || !lastUpdatedColumn || !updateColumns.length || new Set(keys).size !== keys.length || new Set(updateColumns).size !== updateColumns.length || updateColumns.some(column => keys.includes(column))) {
+    lines.push('# TODO: Set valid source and target DataFrames, business keys, update columns, and a last-updated column for SCD Type 1.');
     if (updateColumns.some(column => keys.includes(column))) lines.push('# TODO: Do not include business key columns in the update list.');
     return;
   }
 
-  const targetSpec = deltaTargetSpec(item.id, target);
-  const mergeCondition = keys.map(key => `target.${quotedSqlName(key)} = source.${quotedSqlName(key)}`).join(' AND ');
-  lines.push('# SCD Type 1: update matched rows in place and insert new business keys.');
-  lines.push(`_lakeloom_scd1_keys = ${pyList(keys)}`);
-  lines.push(`_lakeloom_scd1_null_source_keys = ${frame}.filter(${keys.map(key => `F.col(${pyString(key)}).isNull()`).join(' | ')}).limit(1).count()`);
-  lines.push('if _lakeloom_scd1_null_source_keys:');
-  lines.push('    raise ValueError("SCD Type 1 business keys cannot be null.")');
-  lines.push(`_lakeloom_scd1_duplicate_source_keys = ${frame}.groupBy(*[F.col(column) for column in _lakeloom_scd1_keys]).count().filter(F.col("count") > 1).limit(1).count()`);
-  lines.push('if _lakeloom_scd1_duplicate_source_keys:');
-  lines.push('    raise ValueError("SCD Type 1 requires one source row per business key.")');
-  lines.push(`_lakeloom_scd1_exists = ${targetSpec.exists}`);
-  lines.push('if not _lakeloom_scd1_exists:');
-  lines.push(`    ${frame}.write.format("delta").mode("overwrite").${targetSpec.save}`);
-  lines.push('else:');
-  lines.push(`    _lakeloom_scd1_target = ${targetSpec.open}`);
-  lines.push('    _lakeloom_scd1_duplicate_target_keys = _lakeloom_scd1_target.toDF().groupBy(*[F.col(column) for column in _lakeloom_scd1_keys]).count().filter(F.col("count") > 1).limit(1).count()');
-  lines.push('    if _lakeloom_scd1_duplicate_target_keys:');
-  lines.push('        raise ValueError("SCD Type 1 target must contain one row per business key.")');
-  lines.push('    (');
-  lines.push('        _lakeloom_scd1_target.alias("target").merge(');
-  lines.push(`            ${frame}.alias("source"),`);
-  lines.push(`            ${pyString(mergeCondition)}`);
-  lines.push('        )');
-  if (updateColumns.length) {
-    lines.push('        .whenMatchedUpdate(set={');
-    for (const column of updateColumns) lines.push(`            ${pyString(column)}: ${pyString(`source.${quotedSqlName(column)}`)},`);
-    lines.push('        })');
-  } else {
-    lines.push('        .whenMatchedUpdateAll()');
-  }
-  lines.push('        .whenNotMatchedInsertAll()');
-  lines.push('        .execute()');
-  lines.push('    )');
+  const keyCondition = keys.map(key => `(col(${pyString(`src.${key}`)}) == col(${pyString(`tgt.${key}`)}))`).join(' & ');
+  const missingTarget = keys.map(key => `col(${pyString(`tgt.${key}`)}).isNull()`).join(' | ');
+  const selectedUpdateColumns = updateColumns.length ? [...new Set([...updateColumns, lastUpdatedColumn])] : [];
+  lines.push('joined_df = ' + targetFrame + '.alias("tgt").join(');
+  lines.push(`    ${sourceFrame}.alias("src"),`);
+  lines.push(`    on=${keyCondition},`);
+  lines.push('    how="full_outer"');
+  lines.push(')');
+  lines.push(`is_newer_or_new = (col(${pyString(`src.${lastUpdatedColumn}`)}) > col(${pyString(`tgt.${lastUpdatedColumn}`)})) | ${missingTarget}`);
+  lines.push('final_df = joined_df.select(');
+  keys.forEach((key, index) => lines.push(`    coalesce(col(${pyString(`src.${key}`)}), col(${pyString(`tgt.${key}`)})).alias(${pyString(key)}),`));
+  selectedUpdateColumns.forEach((column, index) => lines.push(`    when(is_newer_or_new, col(${pyString(`src.${column}`)})).otherwise(col(${pyString(`tgt.${column}`)})).alias(${pyString(column)})${index < selectedUpdateColumns.length - 1 ? ',' : ''}`));
+  lines.push(')');
+  lines.push('display(final_df)');
 }
 
 function addScdType2(item, frame, lines) {
-  const target = getValue(item.id, 'target');
+  const requestedSource = cleanLegacyPlaceholderValue(item.id, 'sourceFrame', getValue(item.id, 'sourceFrame'));
+  const sourceFrame = requestedSource ? validFrameName(requestedSource, '') : 'src_df';
+  const targetFrame = validFrameName(getValue(item.id, 'targetFrame'), '');
   const keys = csvList(getValue(item.id, 'keys'));
-  const trackedColumns = csvList(getValue(item.id, 'trackedColumns'));
-  const effectiveColumn = getValue(item.id, 'effectiveColumn');
+  const attributeColumns = csvList(getValue(item.id, 'attributeColumns'));
+  const lastUpdatedColumn = getValue(item.id, 'lastUpdatedColumn');
   const validFrom = getValue(item.id, 'validFrom');
   const validTo = getValue(item.id, 'validTo');
   const currentFlag = getValue(item.id, 'currentFlag');
   const historyColumns = [validFrom, validTo, currentFlag];
-  const configuredColumns = [...keys, ...trackedColumns, ...historyColumns];
+  const configuredColumns = [...keys, ...attributeColumns, lastUpdatedColumn, ...historyColumns];
   const hasOverlappingColumns = new Set(configuredColumns).size !== configuredColumns.length;
-  if (!target || !keys.length || !trackedColumns.length || historyColumns.some(column => !column) || hasOverlappingColumns) {
-    lines.push('# TODO: Set a Delta target, business key, tracked columns, and three unique history columns for SCD Type 2.');
-    if (hasOverlappingColumns) lines.push('# TODO: Keep business keys, tracked columns, and history columns distinct.');
+  if (!sourceFrame || !targetFrame || !keys.length || !attributeColumns.length || !lastUpdatedColumn || historyColumns.some(column => !column) || hasOverlappingColumns) {
+    lines.push('# TODO: Set valid source and target DataFrames, business keys, attributes, a last-updated column, and three unique history columns for SCD Type 2.');
+    if (hasOverlappingColumns) lines.push('# TODO: Keep business keys, attribute columns, and history columns distinct.');
     return;
   }
 
-  const targetSpec = deltaTargetSpec(item.id, target);
-  const effectiveExpression = effectiveColumn
-    ? `F.coalesce(F.col(${pyString(effectiveColumn)}).cast("timestamp"), F.current_timestamp())`
-    : 'F.current_timestamp()';
-  const keyMatches = keys.map(key => `(F.col(${pyString(`source.${quotedSqlName(key)}`)}) == F.col(${pyString(`target.${quotedSqlName(key)}`)}))`);
-  const changedChecks = trackedColumns.map(column => `(~F.col(${pyString(`target.${quotedSqlName(column)}`)}).eqNullSafe(F.col(${pyString(`source.${quotedSqlName(column)}`)})))`);
-  const mergeCondition = [
-    ...keys.map(key => `target.${quotedSqlName(key)} = source.${quotedSqlName(key)}`),
-    `target.${quotedSqlName(currentFlag)} = true`,
-    "source.__lakeloom_merge_action = 'expire'"
-  ].join(' AND ');
-
-  lines.push('# SCD Type 2: expire changed active rows and insert new versions.');
-  lines.push('# Enforce one source row per business key and one active target row per key.');
-  lines.push(`_lakeloom_scd2_keys = ${pyList(keys)}`);
-  lines.push(`_lakeloom_scd2_exists = ${targetSpec.exists}`);
-  lines.push('_lakeloom_scd2_source = (');
-  lines.push(`    ${frame}`);
-  lines.push(`    .withColumn(${pyString(validFrom)}, ${effectiveExpression})`);
-  lines.push(`    .withColumn(${pyString(validTo)}, F.lit(None).cast("timestamp"))`);
-  lines.push(`    .withColumn(${pyString(currentFlag)}, F.lit(True))`);
+  const keyMatches = keys.map(key => `(col(${pyString(`src.${key}`)}) == col(${pyString(`tgt.${key}`)}))`);
+  const sourcePresent = keys.map(key => `col(${pyString(`src.${key}`)}).isNotNull()`).join(' & ');
+  const targetPresent = keys.map(key => `col(${pyString(`tgt.${key}`)}).isNotNull()`).join(' & ');
+  const sourceColumns = [...keys, ...attributeColumns, lastUpdatedColumn];
+  const selectColumns = (alias, columns) => columns.map(column => `col(${pyString(`${alias}.${column}`)}).alias(${pyString(column)})`).join(', ');
+  lines.push(`active_target = ${targetFrame}.filter(col(${pyString(currentFlag)}) == True)`);
+  lines.push(`inactive_target = ${targetFrame}.filter(col(${pyString(currentFlag)}) == False)`);
+  lines.push('joined_df = ' + sourceFrame + '.alias("src").join(');
+  lines.push('    active_target.alias("tgt"),');
+  lines.push(`    on=${keyMatches.join(' & ')},`);
+  lines.push('    how="full_outer"');
   lines.push(')');
-  lines.push('_lakeloom_scd2_duplicate_source_keys = _lakeloom_scd2_source.groupBy(*[F.col(column) for column in _lakeloom_scd2_keys]).count().filter(F.col("count") > 1).limit(1).count()');
-  lines.push('if _lakeloom_scd2_duplicate_source_keys:');
-  lines.push('    raise ValueError("SCD Type 2 requires one source row per business key per run.")');
-  lines.push(`_lakeloom_scd2_null_source_keys = _lakeloom_scd2_source.filter(${keys.map(key => `F.col(${pyString(key)}).isNull()`).join(' | ')}).limit(1).count()`);
-  lines.push('if _lakeloom_scd2_null_source_keys:');
-  lines.push('    raise ValueError("SCD Type 2 business keys cannot be null.")');
-  lines.push('if not _lakeloom_scd2_exists:');
-  lines.push(`    _lakeloom_scd2_source.write.format("delta").mode("overwrite").${targetSpec.save}`);
-  lines.push('else:');
-  lines.push(`    _lakeloom_scd2_target = ${targetSpec.open}`);
-  lines.push(`    _lakeloom_scd2_current = _lakeloom_scd2_target.toDF().filter(F.col(${pyString(currentFlag)}) == F.lit(True))`);
-  lines.push('    _lakeloom_scd2_duplicate_current_keys = _lakeloom_scd2_current.groupBy(*[F.col(column) for column in _lakeloom_scd2_keys]).count().filter(F.col("count") > 1).limit(1).count()');
-  lines.push('    if _lakeloom_scd2_duplicate_current_keys:');
-  lines.push('        raise ValueError("SCD Type 2 target must contain only one active version per business key.")');
-  lines.push('    _lakeloom_scd2_key_match = (');
-  keyMatches.forEach((condition, index) => lines.push(`        ${index ? '& ' : ''}${condition}`));
-  lines.push('    )');
-  lines.push('    _lakeloom_scd2_changed = (');
-  changedChecks.forEach((condition, index) => lines.push(`        ${index ? '| ' : ''}${condition}`));
-  lines.push('    )');
-  lines.push('    _lakeloom_scd2_joined = _lakeloom_scd2_source.alias("source").join(');
-  lines.push('        _lakeloom_scd2_current.alias("target"),');
-  lines.push('        _lakeloom_scd2_key_match,');
-  lines.push('        "inner"');
-  lines.push('    )');
-  lines.push('    _lakeloom_scd2_changed_rows = _lakeloom_scd2_joined.filter(_lakeloom_scd2_changed).select("source.*")');
-  lines.push('    _lakeloom_scd2_new_rows = (');
-  lines.push('        _lakeloom_scd2_source.alias("source").join(');
-  lines.push('            _lakeloom_scd2_current.alias("target"),');
-  lines.push('            _lakeloom_scd2_key_match,');
-  lines.push('            "left_anti"');
-  lines.push('        ).select("source.*")');
-  lines.push('    )');
-  lines.push('    _lakeloom_scd2_expire_rows = _lakeloom_scd2_changed_rows.withColumn("__lakeloom_merge_action", F.lit("expire"))');
-  lines.push('    _lakeloom_scd2_insert_rows = (');
-  lines.push('        _lakeloom_scd2_new_rows.unionByName(_lakeloom_scd2_changed_rows)');
-  lines.push('        .withColumn("__lakeloom_merge_action", F.lit("insert"))');
-  lines.push('    )');
-  lines.push('    _lakeloom_scd2_merge_rows = _lakeloom_scd2_expire_rows.unionByName(_lakeloom_scd2_insert_rows)');
-  lines.push('    _lakeloom_scd2_insert_values = {');
-  lines.push('        column: f"source.`{column}`"');
-  lines.push('        for column in _lakeloom_scd2_merge_rows.columns');
-  lines.push('        if column != "__lakeloom_merge_action"');
-  lines.push('    }');
-  lines.push('    (');
-  lines.push('        _lakeloom_scd2_target.alias("target").merge(');
-  lines.push('            _lakeloom_scd2_merge_rows.alias("source"),');
-  lines.push(`            ${pyString(mergeCondition)}`);
-  lines.push('        )');
-  lines.push('        .whenMatchedUpdate(set={');
-  lines.push(`            ${pyString(validTo)}: ${pyString(`source.${quotedSqlName(validFrom)}`)},`);
-  lines.push(`            ${pyString(currentFlag)}: "false"`);
-  lines.push('        })');
-  lines.push('        .whenNotMatchedInsert(');
-  lines.push('            condition="source.__lakeloom_merge_action = \'insert\'",');
-  lines.push('            values=_lakeloom_scd2_insert_values');
-  lines.push('        )');
-  lines.push('        .execute()');
-  lines.push('    )');
+  lines.push(`changed_condition = col(${pyString(`src.${lastUpdatedColumn}`)}) > col(${pyString(`tgt.${lastUpdatedColumn}`)})`);
+  lines.push(`new_records = joined_df.filter(~(${targetPresent})).select(${selectColumns('src', sourceColumns)}).withColumn(${pyString(validFrom)}, current_date()).withColumn(${pyString(validTo)}, lit("9999-12-31").cast("date")).withColumn(${pyString(currentFlag)}, lit(True))`);
+  lines.push(`updated_new_version = joined_df.filter((${sourcePresent}) & (${targetPresent}) & changed_condition).select(${selectColumns('src', sourceColumns)}).withColumn(${pyString(validFrom)}, current_date()).withColumn(${pyString(validTo)}, lit("9999-12-31").cast("date")).withColumn(${pyString(currentFlag)}, lit(True))`);
+  lines.push(`updated_old_version = joined_df.filter((${sourcePresent}) & (${targetPresent}) & changed_condition).select(${selectColumns('tgt', [...sourceColumns, validFrom])}).withColumn(${pyString(validTo)}, current_date()).withColumn(${pyString(currentFlag)}, lit(False))`);
+  lines.push(`unchanged_records = joined_df.filter((~(${sourcePresent})) | ((${sourcePresent}) & (${targetPresent}) & ~changed_condition)).select(${selectColumns('tgt', [...sourceColumns, validFrom, validTo, currentFlag])})`);
+  lines.push('final_target_df = new_records.unionByName(updated_new_version).unionByName(updated_old_version).unionByName(unchanged_records).unionByName(inactive_target)');
+  lines.push('display(final_target_df)');
 }
 
 function addClassification(item, frame, lines) {
@@ -2122,7 +2138,10 @@ function makeValidatedCode() {
   const startNewFrame = item => {
     if (!isNewDataFrameStep(item)) return false;
     const target = getValue(item.id, 'target');
-    if (!validNewFrameName(target, frame) || usedFrameNames.has(target)) return true;
+    if (!validNewFrameName(target, frame) || usedFrameNames.has(target)) {
+      lines.push(`# ${item.title}`, '# TODO: Enter a distinct valid Python DataFrame name for this step.', '', '# COMMAND ----------');
+      return true;
+    }
     usedFrameNames.add(target);
     completedFrames.push(frame);
     const base = getValue(item.id, 'base') === 'source' ? '_lakeloom_source_df' : frame;
@@ -2140,13 +2159,11 @@ function makeValidatedCode() {
     `# Notebook: ${getNotebookName().replace(/[\r\n\t]+/g, ' ')}`,
     'from pyspark.sql import functions as F'
   ];
-  // Keep transformation dependencies in selection order. Table actions consume
-  // the completed source pipeline and retain their relative order at the end.
+  // Keep DataFrame transformations in selection order. Delta table actions run last.
   const selectedInOrder = [...state.selected]
     .map(id => transformations.find(item => item.id === id))
-    .filter(item => item && !sourceSchemaState.omittedSteps?.has(item.id)
-      && !(item.id === 'filter' && !getValue('filter', 'condition')));
-  const isActionStep = item => item.id.startsWith('delta') || ['scd1', 'scd2'].includes(item.id);
+    .filter(Boolean);
+  const isActionStep = item => item.id.startsWith('delta');
   const selected = [...selectedInOrder.filter(item => !isActionStep(item)), ...selectedInOrder.filter(isActionStep)];
   const sparkTypeImports = new Set();
   if (selected.some(item => item.id === 'trimAll')) sparkTypeImports.add('StringType');
@@ -2164,7 +2181,8 @@ function makeValidatedCode() {
   if (selected.some(item => item.kind === 'window' || item.id === 'latest')) lines.push('from pyspark.sql.window import Window');
   if (selected.some(item => item.id === 'standardizeNames')) lines.push('import re');
   if (selected.some(item => item.id === 'monitorPipeline')) lines.push('import uuid', 'from datetime import datetime, timezone');
-  if (selected.some(item => item.id.startsWith('delta') || item.id.startsWith('scd'))) lines.push('from delta.tables import DeltaTable');
+  if (selected.some(item => item.id === 'scd1' || item.id === 'scd2')) lines.push('from pyspark.sql.functions import col, when, current_date, lit, coalesce');
+  if (selected.some(item => item.id.startsWith('delta'))) lines.push('from delta.tables import DeltaTable');
   lines.push('', '# COMMAND ----------');
 
   if (state.uploads.length) {
@@ -2245,7 +2263,7 @@ function makeValidatedCode() {
   addOutputCode(frame, lines);
   if (!document.getElementById('writeOutput').checked) lines.push('');
   // Displays are Spark actions too: defer every generated display until all
-  // DataFrame transformations, SCD checks/merges, and output writes are complete.
+  // DataFrame transformations and output writes are complete.
   const finalDisplays = [];
   for (let index = 0; index < lines.length; index++) {
     if (/^display\([A-Za-z_]\w*\)$/.test(lines[index])) {
@@ -2532,6 +2550,7 @@ function updatePreview() {
   }
   applyCategory();
   updateSchemaAvailability();
+  updateDirectWriteAvailability();
 }
 
 function syncCard(id) {
@@ -2548,15 +2567,48 @@ function syncCard(id) {
   card.querySelectorAll('select[data-op]').forEach(syncDropdownHelp);
 }
 
+function keepExpandedCardAtClickPosition(card, previousTop) {
+  if (!card || !card.classList.contains('is-selected')) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!card.classList.contains('is-selected') || card.hidden) return;
+    const nextTop = card.getBoundingClientRect().top;
+    const movement = nextTop - previousTop;
+    if (Math.abs(movement) < 2) return;
+
+    const listStyle = getComputedStyle(list);
+    const listScrolls = /(auto|scroll)/.test(listStyle.overflowY) && list.scrollHeight > list.clientHeight;
+    if (listScrolls) {
+      list.scrollBy({ top: movement, behavior: 'smooth' });
+    } else {
+      window.scrollBy({ top: movement, behavior: 'smooth' });
+    }
+  }));
+}
+
+const transformationSearchStopWords = new Set(['a', 'an', 'and', 'for', 'from', 'in', 'of', 'on', 'the', 'to', 'two', 'with']);
+
+function transformationSearchTokens(value) {
+  return String(value || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.map(token => token === 'df' ? 'dataframe' : token === 'dedupe' ? 'duplicate' : token)
+    .map(token => token.length > 4 && token.endsWith('s') ? token.slice(0, -1) : token)
+    .filter(token => !transformationSearchStopWords.has(token)) || [];
+}
+
 function applyCategory() {
   const query = document.getElementById('operationSearch').value.trim().toLowerCase();
+  const queryTokens = transformationSearchTokens(query);
   document.getElementById('backToAllTransformations').hidden = state.category === 'all' && !query;
   let shown = 0;
   document.querySelectorAll('.transform-card').forEach(card => {
     const item = transformations.find(operation => operation.id === card.dataset.card);
     const categoryMatch = state.category === 'all' || card.dataset.category === state.category;
-    const searchable = `${item.title} ${item.description} ${item.presetFn || ''} ${item.kind || ''} ${item.fields.map(field => `${field.label} ${field.placeholder || ''} ${field.hint || ''} ${(field.options || []).flat().join(' ')}`).join(' ')}`.toLowerCase();
-    const queryMatch = !query || searchable.includes(query);
+    const searchable = transformationSearchTokens(`${item.id} ${item.title} ${item.description} ${item.presetFn || ''} ${item.kind || ''} ${item.fields.map(field => `${field.label} ${field.placeholder || ''} ${field.hint || ''} ${(field.options || []).flat().join(' ')}`).join(' ')}`);
+    const queryMatch = !queryTokens.length || queryTokens.every(queryToken => searchable.some(searchToken => searchToken.includes(queryToken) || queryToken.includes(searchToken)));
     card.hidden = !(categoryMatch && queryMatch);
     if (!card.hidden) shown++;
   });
@@ -2614,8 +2666,7 @@ function ensureNewDataFrameSteps(selectedIds, savedFields = []) {
     if (!isNewDataFrameStep(id) || id === 'newDataFrame' || transformations.some(item => item.id === id)) continue;
     const savedTarget = savedFields.find(field => field.op === id && field.key === 'target')?.value;
     const item = createNewDataFrameStep(id, typeof savedTarget === 'string' && savedTarget ? savedTarget : nextNewDataFrameName());
-    transformations.push(item);
-    list.insertAdjacentHTML('beforeend', transformationCardMarkup(item));
+    insertNewDataFrameStep(item);
     added = true;
   }
   if (added) renderCategories();
@@ -2671,7 +2722,7 @@ function useRecipe(recipeId) {
   state.selected = new Set(recipe.selected || []);
   for (const field of recipe.fields || []) {
     const control = document.getElementById(`${field.op}-${field.key}`);
-    if (control) control.value = field.value;
+    if (control) control.value = cleanLegacyPlaceholderValue(field.op, field.key, field.value);
   }
   transformations.forEach(item => syncCard(item.id));
 
@@ -2775,6 +2826,9 @@ function updateUploadMode() {
   document.getElementById('sourcePathLabel').textContent = isFolder
     ? 'Databricks table name or table path'
     : 'Databricks storage path';
+  document.getElementById('sourcePathHint').textContent = mode === 'databricks'
+    ? 'Use catalog.schema.table, /Volumes/..., or an ADLS Gen2 abfss:// path available to this Databricks identity.'
+    : 'Enter the Databricks or ADLS path that the exported notebook will read.';
   const versionField = document.getElementById('sourceDeltaVersionField');
   const versionInput = document.getElementById('sourceDeltaVersion');
   const isDelta = format === 'delta';
@@ -2800,10 +2854,10 @@ function syncOutputSettings() {
   const icebergCreatesTable = isIceberg && icebergMode === 'createOrReplace';
   const partitionField = document.getElementById('outputPartitions').closest('.field');
 
-  document.getElementById('outputDestinationLabel').textContent = isIceberg ? 'Iceberg catalog table' : 'Databricks storage path';
+  document.getElementById('outputDestinationLabel').textContent = isIceberg ? 'Iceberg catalog table' : 'Databricks or ADLS destination';
   document.getElementById('outputDestination').placeholder = isIceberg
     ? 'catalog.schema.cleaned_table'
-    : `/Volumes/catalog/schema/volume/cleaned_data${format === 'csv' ? '.csv' : format === 'json' ? '.json' : format === 'text' ? '.txt' : ''}`;
+    : `abfss://container@account.dfs.core.windows.net/cleaned_data${format === 'csv' ? '.csv' : format === 'json' ? '.json' : format === 'text' ? '.txt' : ''}`;
   document.getElementById('outputModeField').hidden = isIceberg;
   document.getElementById('icebergModeField').hidden = !isIceberg;
   document.getElementById('icebergLocationField').hidden = !icebergCreatesTable;
@@ -2826,8 +2880,94 @@ function syncOutputSettings() {
   document.getElementById('outputHelp').textContent = isIceberg
     ? 'Use a catalog.schema.table name. Create or replace can set its storage location and partition columns; append uses the existing table definition.'
     : format === 'text'
-      ? 'Enter a Databricks accessible path. TXT output is written as one JSON serialized record per line.'
-      : 'Enter a Databricks accessible path. The generated notebook writes the transformed DataFrame when you run it.';
+      ? 'Enter an abfss:// or /Volumes/ path. TXT output is written as one JSON serialized record per line.'
+      : 'Enter an abfss:// ADLS Gen2 path or /Volumes/ path. Use the direct write button to run now, or export the notebook for ADF.';
+  updateDirectWriteAvailability();
+}
+
+function updateDirectWriteAvailability() {
+  const button = document.getElementById('writeOutputNow');
+  if (!button) return;
+  const destination = document.getElementById('outputDestination')?.value.trim() || '';
+  const format = document.getElementById('outputFormat')?.value || '';
+  const connected = state.session?.previewAvailable === true;
+  const supportedDestination = destination.startsWith('abfss://') || destination.startsWith('/Volumes/');
+  const hasTableManagementStep = [...state.selected].some(id => id.startsWith('delta'));
+  button.disabled = state.previewRunning || !connected || !document.getElementById('writeOutput').checked || !supportedDestination || format === 'iceberg' || hasTableManagementStep;
+  button.title = format === 'iceberg'
+    ? 'Direct Iceberg table writes are available through the exported notebook.'
+    : hasTableManagementStep
+      ? 'Remove Delta table management actions before using a direct write.'
+    : !connected
+      ? 'Connect Databricks before writing output.'
+      : !supportedDestination
+        ? 'Enter an abfss:// or /Volumes/ destination.'
+        : 'Run the current transformations and write the final DataFrame.';
+}
+
+function openWriteOutputDialog() {
+  const destination = document.getElementById('outputDestination').value.trim();
+  const format = document.getElementById('outputFormat').value;
+  const mode = document.getElementById('outputMode').value;
+  document.getElementById('writeConfirmationDestination').textContent = destination;
+  document.getElementById('writeConfirmationMode').textContent = `${format.toUpperCase()} · ${mode}`;
+  const copy = document.getElementById('writeOutputDialogCopy');
+  copy.textContent = mode === 'overwrite'
+    ? 'This will replace data at the destination with the final transformed DataFrame. Confirm the path carefully.'
+    : 'LakeLoom will run the current transformations in Databricks and write their final DataFrame to this destination.';
+  openModal('writeOutputModal', 'confirmWriteOutput');
+}
+
+async function writeCurrentOutput() {
+  if (state.previewRunning) return;
+  const button = document.getElementById('confirmWriteOutput');
+  const destination = document.getElementById('outputDestination').value.trim();
+  const format = document.getElementById('outputFormat').value;
+  const mode = document.getElementById('outputMode').value;
+  const results = document.getElementById('runResults');
+  const status = document.getElementById('runStatus');
+  const table = document.getElementById('runTable');
+  state.previewRunning = true;
+  button.disabled = true;
+  button.textContent = 'Writing…';
+  results.hidden = false;
+  status.classList.remove('is-error');
+  status.textContent = `Running transformations and writing ${format.toUpperCase()} output…`;
+  table.innerHTML = '';
+  updateRunAvailability();
+  updateDirectWriteAvailability();
+  try {
+    const response = await fetch('/api/write-output', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-LakeLoom-Request': '1' },
+      body: JSON.stringify({
+        code: codeForRunPreview(currentNotebookCode()),
+        dataframeName: document.getElementById('dataframeName').value.trim() || 'df',
+        destination, format, mode,
+        partitions: csvList(document.getElementById('outputPartitions').value),
+        compression: document.getElementById('outputCompression').value,
+        csvDelimiter: document.getElementById('csvDelimiter').value || ',',
+        csvHeader: document.getElementById('csvHeader').checked
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `Write failed (${response.status}).`);
+    closeModal(document.getElementById('writeOutputModal'));
+    status.textContent = `Write completed: ${format.toUpperCase()} · ${mode} · ${destination}`;
+    table.innerHTML = '<p class="run-status">The transformed DataFrame was saved successfully.</p>';
+    addActivity('Databricks output written', `${format.toUpperCase()} · ${destination}`);
+    showToast('Output written successfully');
+  } catch (error) {
+    closeModal(document.getElementById('writeOutputModal'));
+    status.textContent = error.message || 'Databricks could not write the output.';
+    status.classList.add('is-error');
+  } finally {
+    state.previewRunning = false;
+    button.disabled = false;
+    button.textContent = 'Write data';
+    updateRunAvailability();
+    updateDirectWriteAvailability();
+  }
 }
 
 function formatBytes(bytes) {
@@ -2993,16 +3133,41 @@ list.addEventListener('click', event => {
   const head = event.target.closest('[data-toggle]');
   if (!head || event.target.closest('input')) return;
   const id = head.dataset.toggle;
+  const card = head.closest('.transform-card');
+  const previousTop = card.getBoundingClientRect().top;
   if (state.selected.has(id)) state.selected.delete(id); else state.selected.add(id);
   syncCard(id);
   updatePreview();
+  keepExpandedCardAtClickPosition(card, previousTop);
+});
+
+function cleanLegacyPlaceholderValue(operation, key, value) {
+  const text = String(value ?? '');
+  const legacyText = 'Current pipeline result';
+  const isLegacyFrameField = key === 'leftFrame' || key === 'sourceFrame';
+  return isLegacyFrameField && text.startsWith(legacyText) ? text.slice(legacyText.length).trimStart() : text;
+}
+
+list.addEventListener('focusin', event => {
+  const field = event.target.closest('[data-op][data-key]');
+  if (!field) return;
+  const placeholder = field.getAttribute('placeholder') || '';
+  let cleaned = cleanLegacyPlaceholderValue(field.dataset.op, field.dataset.key, field.value);
+  if (placeholder && cleaned.startsWith(placeholder)) cleaned = cleaned.slice(placeholder.length).trimStart();
+  if (field.value !== cleaned) {
+    field.value = cleaned;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 });
 
 list.addEventListener('change', event => {
   if (event.target.matches('[data-check]')) {
     const id = event.target.dataset.check;
+    const card = event.target.closest('.transform-card');
+    const previousTop = card.getBoundingClientRect().top;
     if (event.target.checked) state.selected.add(id); else state.selected.delete(id);
     syncCard(id);
+    keepExpandedCardAtClickPosition(card, previousTop);
   }
   if (event.target.matches('[data-op]')) syncCard(event.target.dataset.op);
   updatePreview();
@@ -3053,8 +3218,7 @@ document.getElementById('addNewDataFrame').addEventListener('click', () => {
   let id = 'newDataFrame';
   if (hasSelectedBoundary) {
     const item = createNewDataFrameStep(nextNewDataFrameId(), nextNewDataFrameName());
-    transformations.push(item);
-    list.insertAdjacentHTML('beforeend', transformationCardMarkup(item));
+    insertNewDataFrameStep(item);
     id = item.id;
   }
   state.selected.add(id);
@@ -3106,6 +3270,7 @@ document.getElementById('sourceFormat').addEventListener('change', () => {
 
 document.getElementById('writeOutput').addEventListener('change', () => {
   updatePreview();
+  updateDirectWriteAvailability();
 });
 document.getElementById('chainSelectedSteps').addEventListener('change', updatePreview);
 document.getElementById('outputFormat').addEventListener('change', () => {
@@ -3118,7 +3283,10 @@ document.getElementById('icebergMode').addEventListener('change', () => {
 });
 ['outputDestination', 'outputPartitions', 'outputCompression', 'csvDelimiter', 'csvHeader', 'outputMode'].forEach(id => {
   const control = document.getElementById(id);
-  control.addEventListener(control.type === 'checkbox' || control.tagName === 'SELECT' ? 'change' : 'input', updatePreview);
+  control.addEventListener(control.type === 'checkbox' || control.tagName === 'SELECT' ? 'change' : 'input', () => {
+    updatePreview();
+    updateDirectWriteAvailability();
+  });
 });
 
 document.querySelector('.side-nav').addEventListener('click', event => {
@@ -3163,11 +3331,63 @@ document.querySelectorAll('[data-help-topic]').forEach(button => button.addEvent
 }));
 window.addEventListener('hashchange', () => setView(location.hash.replace(/^#/, '') || 'builder'));
 
-document.getElementById('authButton').addEventListener('click', () => {
+document.getElementById('authButton').addEventListener('click', async () => {
   openModal('authModal', 'refreshAuth');
+  await loadDatabricksProfiles();
 });
-document.getElementById('userMenuButton').addEventListener('click', () => {
+document.getElementById('userMenuButton').addEventListener('click', async () => {
   openModal('authModal', 'refreshAuth');
+  await loadDatabricksProfiles();
+});
+document.getElementById('databricksAuthMethod').addEventListener('change', syncDatabricksAuthFields);
+document.getElementById('databricksConnectForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('connectDatabricks');
+  const status = document.getElementById('authCheckStatus');
+  const method = document.getElementById('databricksAuthMethod').value;
+  const payload = method === 'token'
+    ? { method, host: document.getElementById('databricksHost').value.trim(), token: document.getElementById('databricksToken').value.trim() }
+    : { method, profile: document.getElementById('databricksProfile').value };
+  button.disabled = true;
+  button.textContent = 'Connecting…';
+  status.classList.remove('is-connected', 'is-unavailable');
+  status.textContent = 'Validating your workspace identity…';
+  try {
+    const response = await fetch('/api/databricks/connect', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-LakeLoom-Request': '1' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Databricks could not validate this connection.');
+    document.getElementById('databricksToken').value = '';
+    await loadDatabricksSession();
+    showToast('Connected to Databricks');
+  } catch (error) {
+    status.classList.add('is-unavailable');
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Connect to Databricks';
+  }
+});
+document.getElementById('disconnectDatabricks').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/databricks/disconnect', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'X-LakeLoom-Request': '1' }
+    });
+    if (!response.ok) throw new Error('Could not disconnect Databricks.');
+    await loadDatabricksSession();
+    await loadDatabricksProfiles();
+    showToast('Databricks disconnected');
+  } catch (error) {
+    document.getElementById('authCheckStatus').textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
 });
 document.getElementById('refreshAuth').addEventListener('click', async event => {
   const button = event.currentTarget;
@@ -3414,6 +3634,11 @@ document.addEventListener('keydown', event => {
   }
 });
 document.getElementById('runPreview').addEventListener('click', () => runNotebookPreview());
+document.getElementById('writeOutputNow').addEventListener('click', openWriteOutputDialog);
+document.getElementById('writeOutputForm').addEventListener('submit', event => {
+  event.preventDefault();
+  writeCurrentOutput();
+});
 document.getElementById('clearRunResults').addEventListener('click', () => {
   document.getElementById('runResults').hidden = true;
   document.getElementById('runStatus').textContent = '';
@@ -3513,6 +3738,50 @@ function bindModuleToggle(buttonId, panelSelector, contentId, moduleName) {
 bindModuleToggle('toggleSourceModule', '.source-card', 'sourceModuleContent', 'source section');
 bindModuleToggle('toggleOutputModule', '.output-card', 'outputSettings', 'output settings');
 bindModuleToggle('toggleModuleHub', '.module-hub', 'moduleHubContent', 'pipeline tools');
+
+const builderGrid = document.querySelector('.builder-grid');
+const builderResizer = document.getElementById('builderResizer');
+const builderSplitStorageKey = 'lakeloom-builder-split';
+
+function setBuilderSplit(percent, persist = false) {
+  const next = Math.min(72, Math.max(42, Number(percent) || 62));
+  builderGrid.style.setProperty('--builder-left', `${next}%`);
+  builderResizer.setAttribute('aria-valuenow', String(Math.round(next)));
+  if (persist) {
+    try { localStorage.setItem(builderSplitStorageKey, String(next)); } catch (_) {}
+  }
+}
+
+try { setBuilderSplit(localStorage.getItem(builderSplitStorageKey) || 62); } catch (_) { setBuilderSplit(62); }
+
+builderResizer.addEventListener('pointerdown', event => {
+  if (window.matchMedia('(max-width: 1200px)').matches) return;
+  event.preventDefault();
+  builderResizer.setPointerCapture(event.pointerId);
+  document.body.classList.add('is-resizing-builder');
+});
+builderResizer.addEventListener('pointermove', event => {
+  if (!builderResizer.hasPointerCapture(event.pointerId)) return;
+  const bounds = builderGrid.getBoundingClientRect();
+  setBuilderSplit(((event.clientX - bounds.left) / bounds.width) * 100);
+});
+function finishBuilderResize(event) {
+  if (!builderResizer.hasPointerCapture(event.pointerId)) return;
+  builderResizer.releasePointerCapture(event.pointerId);
+  document.body.classList.remove('is-resizing-builder');
+  setBuilderSplit(builderResizer.getAttribute('aria-valuenow'), true);
+}
+builderResizer.addEventListener('pointerup', finishBuilderResize);
+builderResizer.addEventListener('pointercancel', finishBuilderResize);
+builderResizer.addEventListener('dblclick', () => setBuilderSplit(62, true));
+builderResizer.addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const current = Number(builderResizer.getAttribute('aria-valuenow')) || 62;
+  if (event.key === 'Home') setBuilderSplit(42, true);
+  else if (event.key === 'End') setBuilderSplit(72, true);
+  else setBuilderSplit(current + (event.key === 'ArrowRight' ? 2 : -2), true);
+});
 
 const sidebar = document.querySelector('.sidebar');
 const mainArea = document.querySelector('.main-area');

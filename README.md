@@ -30,6 +30,44 @@ If port 8000 is already in use, the local server picks a free port and prints it
 
 Complete the OAuth sign-in in the browser, then select that profile in LakeLoom. The preview uses your Databricks user permissions. Credentials stay in the server process and are never stored in browser storage or returned by the session API.
 
+## Browser OAuth for a public deployment
+
+Register LakeLoom as a confidential custom OAuth application in each Databricks account that will use it. Add this exact redirect URL to the integration:
+
+```text
+https://<your-lakeloom-domain>/api/oauth/callback
+```
+
+Configure these server environment variables:
+
+```bash
+DATABRICKS_OAUTH_CLIENT_ID=<integration-client-id>
+DATABRICKS_OAUTH_CLIENT_SECRET=<integration-client-secret>
+LAKELOOM_PUBLIC_URL=https://<your-lakeloom-domain>
+LAKELOOM_SECRET_KEY=<long-random-persistent-secret>
+LAKELOOM_COOKIE_SECURE=true
+LAKELOOM_PROFILE_STORE=/Volumes/<catalog>/<schema>/<volume>/lakeloom/profiles.db
+```
+
+`LAKELOOM_PROFILE_STORE` must point to storage that survives application restarts. LakeLoom associates each saved username and profile photo with the user's verified Databricks email, then loads that profile again whenever the same account signs in. For Databricks Apps, use a writable Unity Catalog Volume and grant the app service principal read and write access to it. Do not use the app container's temporary local filesystem for production profiles.
+
+When these values are present, the sign-in page selects **Continue with Databricks OAuth**. The user enters their HTTPS workspace URL, signs in on Databricks in the same browser tab, and returns to LakeLoom at the Overview page. LakeLoom uses Authorization Code with PKCE and a state check, keeps access and refresh tokens on the server, and refreshes an expiring token automatically. Signing out removes that browser session from the server.
+
+OAuth sessions are stored in the running process so credentials are not written to disk. Run one Gunicorn worker, as shown in `app.yaml`. A horizontally scaled deployment should replace the in-memory OAuth session map with an encrypted shared session store before adding workers or replicas.
+
+### Create the Databricks OAuth connection in the UI
+
+An account administrator must open the Databricks **Account Console**, then go to **Settings → App connections → Add connection**. Use these values:
+
+- **Name:** `LakeLoom`
+- **Redirect URL:** `http://127.0.0.1:8000/api/oauth/callback` for local development, or `https://<your-domain>/api/oauth/callback` for production
+- **Client type:** confidential / generate a client secret
+- **Scopes:** `all-apis`, `offline_access`, `openid`, `profile`, and `email`
+- **Access-token lifetime:** 60 minutes
+- **Refresh-token lifetime:** 10080 minutes or the duration required by your organization
+
+After selecting **Add**, copy the client ID and client secret immediately. Databricks does not show the client secret again. Copy `.env.example` to `.env`, paste those two values, and restart LakeLoom. The local launcher uses the port in `LAKELOOM_PUBLIC_URL` so the callback URL stays stable.
+
 ## Inspect source columns
 
 Selecting local files automatically detects CSV, JSON, TXT, Parquet, Avro, or ORC from the file extension and displays the source columns and data types. **Browse folder** detects Delta from `_delta_log` and Iceberg from its metadata directory. The detected format remains editable when an extension is misleading. Files are sent to the app backend for inspection without saving them or uploading them to Databricks. CSV and JSON types are inferred from up to 1,000 records per file; Parquet, ORC, Avro, Delta, and Iceberg use their stored metadata. TXT sources have one string column named `value`. Local inspection supports selections up to 60 MB; Delta checkpoint-only folders and larger sources can use **Load from Databricks** with a configured connection and accessible table or path.
@@ -73,7 +111,7 @@ The **Engineering modules** category adds production pipeline building blocks di
 
 The builder also includes a visual execution path, a performance advisor, and a step preview that runs the notebook only through a selected transformation. Its local pipeline assistant maps plain-language goals to relevant transformations; always review the suggested fields, expressions, and sample values before running them.
 
-Saved recipes can be exported to JSON and imported into another browser. Recipe files contain notebook configuration and do not contain source data. The footer **Documentation** link opens the complete in-app usage guide.
+Saved recipes are stored per verified Databricks account in the configured LakeLoom profile store. A browser cache keeps the interface responsive and migrates existing browser recipes into the first signed-in account. Recipe records contain notebook configuration and do not contain uploaded source data. The footer **Documentation** link opens the complete in-app usage guide.
 
 ## Build for Windows
 
@@ -92,5 +130,7 @@ If macOS blocks the app, try opening it once, then go to **System Settings → P
 ## Deploy to Databricks Apps
 
 Deploy this project directory as a Databricks App. The included `app.yaml` starts the Flask app with Gunicorn. Grant `CAN USE` to the users or groups who should open it. Databricks Apps will require workspace authentication before a user can access the app. Grant the app service principal permission to use serverless compute and read only the Unity Catalog tables, volumes, or external locations needed by the preview.
+
+Create or select a Unity Catalog Volume for LakeLoom account profiles and configure `LAKELOOM_PROFILE_STORE` with a file inside that Volume. The app service principal needs `USE CATALOG`, `USE SCHEMA`, `READ VOLUME`, and `WRITE VOLUME` on that location. This keeps usernames and uploaded profile photos available when the app process restarts or the same user signs in again later.
 
 Signing out is controlled by the Databricks workspace session. Use the workspace profile menu and choose **Sign out**; an app cannot revoke the user's workspace SSO session.

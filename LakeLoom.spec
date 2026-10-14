@@ -5,7 +5,7 @@ import sys
 
 entry_script = 'macos_launcher.py' if sys.platform == 'darwin' else 'windows_launcher.py'
 
-datas = [('index.html', '.'), ('app.js', '.'), ('schema.js', '.'), ('styles.css', '.'), ('favicon.svg', '.')]
+datas = [('index.html', '.'), ('public_profile.html', '.'), ('app.js', '.'), ('schema.js', '.'), ('styles.css', '.'), ('favicon.svg', '.')]
 binaries = []
 hiddenimports = []
 datas += copy_metadata('databricks-connect')

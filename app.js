@@ -372,7 +372,9 @@ const state = { selected: new Set(), category: 'all', uploads: [], sourceMode: '
 const list = document.getElementById('transformList');
 const codePreview = document.getElementById('codePreview');
 const toast = document.getElementById('toast');
-const recipeStorageKey = 'forge.dataPrep.recipes.v1';
+const legacyRecipeStorageKey = 'forge.dataPrep.recipes.v1';
+let recipeStorageKey = `${legacyRecipeStorageKey}.guest`;
+let recipeSyncQueue = Promise.resolve();
 const activityStorageKey = 'forge.dataPrep.activity.v1';
 const notebookNameStorageKey = 'lakeloom.notebookName.v1';
 const notebookNameInput = document.getElementById('notebookName');
@@ -439,10 +441,57 @@ function readLocalList(key) {
 function writeLocalList(key, items) {
   try {
     localStorage.setItem(key, JSON.stringify(items));
+    if (key === recipeStorageKey && state.session?.authenticated === true) queueRecipeSync(items);
     return true;
   } catch {
     showToast('Browser storage is unavailable. Changes were not saved.');
     return false;
+  }
+}
+
+function accountRecipeStorageKey(email) {
+  return `${legacyRecipeStorageKey}.account.${encodeURIComponent(String(email || '').trim().toLowerCase())}`;
+}
+
+function queueRecipeSync(items) {
+  const recipes = normalizeRecipeList(Array.isArray(items) ? items : []).slice(0, 100);
+  recipeSyncQueue = recipeSyncQueue.catch(() => {}).then(async () => {
+    const response = await fetch('/api/recipes', {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-LakeLoom-Request': '1' },
+      body: JSON.stringify({ recipes })
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error || 'Could not sync saved recipes.');
+    }
+  }).catch(error => showToast(error.message));
+}
+
+async function loadAccountRecipes(session) {
+  if (session?.authenticated !== true || !session.email) {
+    recipeStorageKey = `${legacyRecipeStorageKey}.guest`;
+    return;
+  }
+  recipeStorageKey = accountRecipeStorageKey(session.email);
+  const cachedRecipes = normalizeRecipeList(readLocalList(recipeStorageKey));
+  try {
+    const response = await fetch('/api/recipes', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error('Account recipes unavailable');
+    const result = await response.json();
+    const serverRecipes = normalizeRecipeList(Array.isArray(result.recipes) ? result.recipes : []);
+    if (serverRecipes.length) {
+      localStorage.setItem(recipeStorageKey, JSON.stringify(serverRecipes));
+      return;
+    }
+    const legacyRecipes = cachedRecipes.length ? cachedRecipes : normalizeRecipeList(readLocalList(legacyRecipeStorageKey));
+    localStorage.setItem(recipeStorageKey, JSON.stringify(legacyRecipes));
+    if (legacyRecipes.length) {
+      queueRecipeSync(legacyRecipes);
+      localStorage.removeItem(legacyRecipeStorageKey);
+    }
+  } catch {
+    localStorage.setItem(recipeStorageKey, JSON.stringify(cachedRecipes));
   }
 }
 
@@ -460,6 +509,19 @@ function normalizeRecipeList(items) {
       seenIds.add(id);
       return recipe.id === id ? recipe : { ...recipe, id };
     });
+}
+
+function recipeNameKey(name) {
+  return String(name || '').trim().toLocaleLowerCase();
+}
+
+function setRecipeNameError(inputId, errorId, message = '') {
+  const input = document.getElementById(inputId);
+  const error = document.getElementById(errorId);
+  input.setAttribute('aria-invalid', message ? 'true' : 'false');
+  error.textContent = message;
+  error.hidden = !message;
+  if (message) input.focus();
 }
 
 function readRecipes() {
@@ -531,9 +593,9 @@ function renderWorkspaceViews() {
 }
 
 function setView(view) {
-  const knownViews = ['overview', 'builder', 'history', 'recipes', 'documentation', 'help'];
+  const knownViews = ['overview', 'builder', 'history', 'recipes', 'documentation', 'help', 'account'];
   const target = knownViews.includes(view) ? view : 'builder';
-  const titles = { overview: 'Overview', builder: 'Notebook builder', history: 'Run history', recipes: 'Saved recipes', documentation: 'Documentation', help: 'Help center' };
+  const titles = { overview: 'Overview', builder: 'Notebook builder', history: 'Run history', recipes: 'Saved recipes', documentation: 'Documentation', help: 'Help center', account: 'Account settings' };
   if (document.getElementById('builderView').classList.contains('preview-focus-mode')) {
     setPreviewFocusMode(false);
   }
@@ -564,29 +626,66 @@ function identityDisplayName(displayName, email, userId) {
 function initialsFor(name) {
   const cleanName = String(name || '').split('@')[0];
   const parts = cleanName.trim().split(/[\s._-]+/).filter(Boolean);
-  return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : (parts[0] || 'GU').slice(0, 2)).toUpperCase();
+  return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : (parts[0]?.[0] || 'G')).toUpperCase();
 }
 
 function renderDatabricksSession(session = {}) {
+  const wasAuthenticated = state.session?.authenticated === true;
   const authenticated = session.authenticated === true;
   const databricksApp = session.databricksApp === true;
+  const oauthConnected = session.oauthConnected === true;
   const localConnected = session.localConnected === true;
   const previewAvailable = session.previewAvailable === true;
-  const name = authenticated ? identityDisplayName(session.displayName, session.email, session.userId) : 'Guest user';
+  const name = authenticated ? (session.username || identityDisplayName(session.displayName, session.email, session.userId)) : 'Guest user';
   state.session = { ...session, authenticated, databricksApp, previewAvailable };
 
   const authButton = document.getElementById('authButton');
+  const headerAvatarImage = document.getElementById('headerAvatarImage');
+  const headerAvatarInitials = document.getElementById('headerAvatarInitials');
+  const menuAvatarImage = document.getElementById('menuAvatarImage');
+  const menuAvatarInitials = document.getElementById('menuAvatarInitials');
+  const identityAvatarImage = document.getElementById('identityAvatarImage');
+  const identityAvatarInitials = document.getElementById('identityAvatarInitials');
+  const profileEditorImage = document.getElementById('profileEditorImage');
+  const profileEditorInitials = document.getElementById('profileEditorInitials');
   authButton.disabled = false;
-  authButton.textContent = authenticated ? (localConnected ? 'Databricks connected' : 'Workspace account') : 'Connect Databricks';
+  headerAvatarInitials.textContent = '';
   authButton.title = authenticated ? `Signed in as ${name}` : 'Sign in through Databricks workspace SSO';
   document.getElementById('currentUserName').textContent = name;
   document.getElementById('currentUserName').title = name;
   document.getElementById('currentUserRole').textContent = authenticated
     ? (localConnected ? 'Local Databricks connection' : 'Databricks workspace user')
     : (databricksApp ? 'Workspace sign-in required' : 'Not signed in');
-  document.getElementById('userAvatar').textContent = authenticated ? initialsFor(name) : 'GU';
+  const avatarImage = document.getElementById('userAvatarImage');
+  const avatarInitials = document.getElementById('userAvatarInitials');
+  const hasProfilePhoto = authenticated && session.hasProfilePhoto === true;
+  avatarInitials.textContent = '';
+  avatarInitials.hidden = hasProfilePhoto;
+  avatarImage.hidden = !hasProfilePhoto;
+  avatarImage.src = hasProfilePhoto ? `/api/profile/photo?v=${Date.now()}` : '';
+  headerAvatarInitials.hidden = hasProfilePhoto;
+  headerAvatarImage.hidden = !hasProfilePhoto;
+  headerAvatarImage.src = hasProfilePhoto ? `/api/profile/photo?v=${Date.now()}` : '';
+  menuAvatarInitials.textContent = '';
+  menuAvatarInitials.hidden = hasProfilePhoto;
+  menuAvatarImage.hidden = !hasProfilePhoto;
+  menuAvatarImage.src = hasProfilePhoto ? `/api/profile/photo?v=${Date.now()}` : '';
+  identityAvatarInitials.textContent = '';
+  identityAvatarInitials.hidden = hasProfilePhoto;
+  identityAvatarImage.hidden = !hasProfilePhoto;
+  identityAvatarImage.src = hasProfilePhoto ? `/api/profile/photo?v=${Date.now()}` : '';
+  profileEditorInitials.textContent = '';
+  profileEditorInitials.hidden = hasProfilePhoto;
+  profileEditorImage.hidden = !hasProfilePhoto;
+  profileEditorImage.src = hasProfilePhoto ? `/api/profile/photo?v=${Date.now()}` : '';
+  document.getElementById('menuUserName').textContent = name;
+  document.getElementById('menuUserEmail').textContent = session.email || (authenticated ? 'Databricks workspace account' : 'Not connected');
+  const accountMenuSignOut = document.getElementById('accountMenuSignOut');
+  accountMenuSignOut.textContent = oauthConnected ? '↪  Sign out' : localConnected ? '↪  Disconnect local connection' : authenticated ? '◇  Manage connection' : '◇  Connect Databricks';
   document.getElementById('workspaceSessionStatus').textContent = databricksApp
     ? (authenticated ? 'Databricks Apps · signed in' : 'Databricks Apps · sign-in required')
+    : oauthConnected
+      ? 'Databricks OAuth · connected'
     : localConnected
       ? 'Databricks Connect · connected'
       : session.localConnectReady
@@ -616,12 +715,52 @@ function renderDatabricksSession(session = {}) {
   workspaceLink.hidden = !workspaceUrl;
   workspaceLink.href = workspaceUrl || '#';
   const connectForm = document.getElementById('databricksConnectForm');
+  document.getElementById('databricksOAuthOption').hidden = false;
+  const profileForm = document.getElementById('userProfileForm');
+  const profileUsername = document.getElementById('profileUsername');
+  const editProfileUsername = document.getElementById('editProfileUsername');
+  const profilePhotoActions = document.getElementById('profilePhotoActions');
+  const uploadProfilePhoto = document.getElementById('uploadProfilePhoto');
+  const removeProfilePhoto = document.getElementById('removeProfilePhoto');
+  const publicProfileLink = document.getElementById('publicProfileLink');
   const disconnectButton = document.getElementById('disconnectDatabricks');
   connectForm.hidden = databricksApp || localConnected;
+  const signinGate = document.getElementById('signinGate');
+  const appShell = document.getElementById('appShell');
+  const signinMount = document.getElementById('signinConnectionMount');
+  const connectionFormHome = document.getElementById('connectionFormHome');
+  signinGate.hidden = authenticated;
+  appShell.hidden = !authenticated;
+  document.body.classList.toggle('is-signed-out', !authenticated);
+  if (authenticated) {
+    connectForm.classList.remove('signin-oauth-form');
+    if (connectForm.parentElement !== connectionFormHome) connectionFormHome.append(connectForm);
+  } else if (!databricksApp) {
+    const browserOAuthAvailable = session.oauthAvailable === true;
+    document.getElementById('databricksAuthMethod').value = browserOAuthAvailable ? 'oauth' : 'profile';
+    connectForm.classList.toggle('signin-oauth-form', browserOAuthAvailable);
+    signinMount.replaceChildren(connectForm);
+    connectForm.hidden = false;
+  } else {
+    signinMount.innerHTML = '<div class="signin-managed-message"><strong>Workspace sign-in required</strong><span>Open LakeLoom from your Databricks Apps page. Your workspace will authenticate you automatically.</span></div>';
+  }
+  syncDatabricksAuthFields();
+  if (!authenticated) profileForm.dataset.editing = 'false';
+  const editingUsername = profileForm.dataset.editing === 'true';
+  profileForm.hidden = !authenticated || (Boolean(session.username) && !editingUsername);
+  editProfileUsername.hidden = !authenticated || !session.username || editingUsername;
+  profilePhotoActions.hidden = !authenticated || !session.username;
+  uploadProfilePhoto.textContent = hasProfilePhoto ? 'Change photo' : 'Upload photo';
+  removeProfilePhoto.hidden = !hasProfilePhoto;
+  publicProfileLink.hidden = !authenticated || !session.username;
+  publicProfileLink.href = session.username ? `/${encodeURIComponent(session.username)}` : '#';
+  if (authenticated && document.activeElement !== profileUsername) profileUsername.value = session.username || '';
   disconnectButton.hidden = !localConnected;
   if (authenticated) {
     authTitle.textContent = localConnected ? 'Connected to Databricks' : 'Connected with Databricks SSO';
-    authCopy.textContent = localConnected
+    authCopy.textContent = oauthConnected
+      ? 'Your Databricks OAuth session is active. LakeLoom refreshes it securely when required.'
+      : localConnected
       ? `LakeLoom validated this ${session.connectionMethod === 'token' ? 'token' : 'CLI profile'} and will use it for preview runs.`
       : 'Your workspace identity is active for this app. To sign out, use the Databricks workspace profile menu and choose Sign out.';
     workspaceLink.firstChild.textContent = 'Open Databricks workspace ';
@@ -634,8 +773,10 @@ function renderDatabricksSession(session = {}) {
     authCopy.textContent = 'LakeLoom can run previews through your local Databricks Connect profile. The app UI stays in guest mode and does not expose your credentials.';
     workspaceLink.firstChild.textContent = 'Open Databricks workspace ';
   } else {
-    authTitle.textContent = 'Open in Databricks Apps';
-    authCopy.textContent = 'For local preview runs, configure Databricks Connect with a workspace OAuth profile. You can also deploy and open LakeLoom from Databricks Apps, where the workspace handles sign-in.';
+    authTitle.textContent = session.oauthAvailable ? 'Sign in with Databricks' : 'Connect to Databricks';
+    authCopy.textContent = session.oauthAvailable
+      ? 'Enter your workspace URL and continue to Databricks. After workspace sign-in, you will return to LakeLoom automatically.'
+      : 'This deployment has not configured browser OAuth. Use a local Databricks CLI profile or personal access token.';
     workspaceLink.firstChild.textContent = 'Open Databricks workspace ';
   }
   const checkStatus = document.getElementById('authCheckStatus');
@@ -649,6 +790,30 @@ function renderDatabricksSession(session = {}) {
         : databricksApp
           ? 'No workspace identity was received. Open LakeLoom from the Databricks Apps page and sign in there.'
           : 'No local connection was found. Run the Databricks CLI OAuth setup in a terminal, then check again.';
+  }
+  const accountUsername = document.getElementById('accountUsernameValue');
+  const accountEmail = document.getElementById('accountEmailValue');
+  const accountProfileUrl = document.getElementById('accountProfileUrlValue');
+  const sessionIdentity = document.getElementById('sessionIdentityValue');
+  const sessionConnection = document.getElementById('sessionConnectionValue');
+  const endSession = document.getElementById('endCurrentSession');
+  if (accountUsername) accountUsername.textContent = session.username || 'Not set';
+  if (accountEmail) accountEmail.textContent = session.email || 'Unavailable';
+  if (accountProfileUrl) accountProfileUrl.textContent = session.username ? `${window.location.origin}/${session.username}` : 'Save a username to create your profile';
+  if (sessionIdentity) sessionIdentity.textContent = authenticated ? name : 'Guest user';
+  if (sessionConnection) sessionConnection.textContent = localConnected
+    ? `Local Databricks connection${session.connectionMethod ? ` · ${session.connectionMethod}` : ''}`
+    : oauthConnected
+      ? 'Databricks OAuth'
+    : databricksApp && authenticated
+      ? 'Databricks Apps workspace SSO'
+      : session.localConnectReady
+        ? 'Databricks Connect profile configured'
+        : 'No active Databricks session';
+  if (endSession) endSession.hidden = !localConnected;
+  if (authenticated && !wasAuthenticated) {
+    if (location.hash === '#overview') setView('overview');
+    else location.hash = 'overview';
   }
   updateRunAvailability();
   updateSchemaAvailability();
@@ -681,9 +846,11 @@ async function loadDatabricksProfiles() {
 }
 
 function syncDatabricksAuthFields() {
-  const useToken = document.getElementById('databricksAuthMethod').value === 'token';
-  document.getElementById('databricksProfileFields').hidden = useToken;
-  document.getElementById('databricksTokenFields').hidden = !useToken;
+  const method = document.getElementById('databricksAuthMethod').value;
+  document.getElementById('databricksOAuthFields').hidden = method !== 'oauth';
+  document.getElementById('databricksProfileFields').hidden = method !== 'profile';
+  document.getElementById('databricksTokenFields').hidden = method !== 'token';
+  document.getElementById('connectDatabricks').textContent = method === 'oauth' ? 'Continue with Databricks' : 'Connect to Databricks';
 }
 
 function updateRunAvailability() {
@@ -742,7 +909,10 @@ async function loadDatabricksSession() {
   try {
     const response = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Session endpoint unavailable');
-    renderDatabricksSession(await response.json());
+    const session = await response.json();
+    await loadAccountRecipes(session);
+    renderDatabricksSession(session);
+    renderWorkspaceViews();
   } catch {
     renderDatabricksSession({ authenticated: false, databricksApp: false, previewAvailable: false, displayName: '', email: '', workspaceUrl: '' });
   }
@@ -2617,14 +2787,19 @@ function applyCategory() {
   document.getElementById('emptyState').hidden = shown !== 0;
 }
 
-function showToast(message) {
+function showToast(message, duration = 2200) {
   toast.textContent = message;
   toast.classList.add('visible');
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove('visible'), 2200);
+  showToast.timer = setTimeout(() => toast.classList.remove('visible'), duration);
 }
 
 function saveCurrentRecipe(name) {
+  const recipes = readRecipes();
+  if (recipes.some(recipe => recipeNameKey(recipe.name) === recipeNameKey(name))) {
+    setRecipeNameError('recipeName', 'recipeNameError', `A recipe named “${name}” already exists. Choose a unique name.`);
+    return;
+  }
   const recipe = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name,
@@ -2650,7 +2825,6 @@ function saveCurrentRecipe(name) {
     csvDelimiter: document.getElementById('csvDelimiter').value,
     csvHeader: document.getElementById('csvHeader').checked
   };
-  const recipes = readRecipes();
   recipes.unshift(recipe);
   if (!writeLocalList(recipeStorageKey, recipes.slice(0, 100))) return;
   closeModal(document.getElementById('recipeModal'));
@@ -2673,11 +2847,13 @@ function ensureNewDataFrameSteps(selectedIds, savedFields = []) {
 }
 
 function openRecipeDialog() {
+  setRecipeNameError('recipeName', 'recipeNameError');
   document.getElementById('recipeName').value = getNotebookName();
   openModal('recipeModal', 'recipeName');
 }
 
 function openRecipeRenameDialog(recipe) {
+  setRecipeNameError('renameRecipeName', 'renameRecipeNameError');
   renamingRecipeId = recipe.id;
   const input = document.getElementById('renameRecipeName');
   input.value = recipe.name || 'Untitled recipe';
@@ -2690,8 +2866,8 @@ function openRecipeDeleteDialog(recipes) {
   const multiple = recipes.length > 1;
   document.getElementById('deleteRecipeDialogTitle').textContent = multiple ? `Delete ${recipes.length} recipes?` : 'Delete recipe?';
   document.getElementById('deleteRecipeDialogCopy').textContent = multiple
-    ? `The ${recipes.length} selected recipes will be permanently removed from this browser.`
-    : `“${recipes[0].name || 'Untitled recipe'}” will be permanently removed from this browser.`;
+    ? `The ${recipes.length} selected recipes will be permanently removed from your account.`
+    : `“${recipes[0].name || 'Untitled recipe'}” will be permanently removed from your account.`;
   document.getElementById('confirmDeleteRecipes').textContent = multiple ? `Delete ${recipes.length} recipes` : 'Delete recipe';
   openModal('deleteRecipeModal', 'confirmDeleteRecipes');
 }
@@ -3034,6 +3210,13 @@ function updateSourceSummary() {
 function setUploadedFiles(fileList, selectionKind = 'files') {
   const files = Array.from(fileList || []);
   if (!files.length) return;
+  const totalBytes = files.reduce((size, file) => size + file.size, 0);
+  if (totalBytes > 60 * 1024 * 1024) {
+    document.getElementById('sourceFiles').value = '';
+    document.getElementById('sourceFolder').value = '';
+    showToast('This selection is larger than 60 MB. Upload it to Databricks or ADLS first, then choose Databricks and load the schema from its table or storage path.', 8000);
+    return;
+  }
   const format = detectSourceFormat(files, selectionKind);
   if (!format) {
     showToast(selectionKind === 'folder'
@@ -3118,6 +3301,136 @@ function restoreUploadedPathBase() {
   state.uploadedPathFileName = null;
 }
 
+function initializeAccountPage() {
+  const modal = document.getElementById('authModal');
+  const card = modal?.querySelector('.account-dialog');
+  const destination = document.getElementById('accountPageContent');
+  if (!modal || !card || !destination) return;
+
+  const take = id => document.getElementById(id);
+  const createPanel = (id, title, copy) => {
+    const panel = document.createElement('section');
+    panel.className = 'account-settings-panel';
+    panel.dataset.accountPanel = id;
+    panel.hidden = id !== 'profile';
+    panel.innerHTML = `<header class="account-panel-header"><h2>${title}</h2><p>${copy}</p></header>`;
+    destination.append(panel);
+    return panel;
+  };
+
+  const profilePanel = createPanel('profile', 'Profile & account', 'Manage your LakeLoom identity and the account linked to Databricks.');
+  const profileEditor = document.createElement('div');
+  profileEditor.className = 'profile-editor-grid';
+  profileEditor.innerHTML = `
+    <div class="profile-editor-details" id="profileEditorDetails"></div>
+    <aside class="profile-picture-editor">
+      <h3>Profile picture</h3>
+      <div class="profile-picture-preview">
+        <img id="profileEditorImage" alt="Profile picture" hidden />
+        <span id="profileEditorInitials">GU</span>
+      </div>
+      <div id="profileEditorPhotoControls"></div>
+    </aside>`;
+  profilePanel.append(profileEditor);
+  ['authIdentityCard', 'userProfileForm', 'publicProfileLink'].forEach(id => take('profileEditorDetails').append(take(id)));
+  take('profileEditorPhotoControls').append(take('profilePhotoActions'));
+  take('profileEditorDetails').insertAdjacentHTML('beforeend', `
+    <div class="account-info-list">
+      <div><span>Username</span><strong id="accountUsernameValue">Not set</strong></div>
+      <div><span>Verified email</span><strong id="accountEmailValue">Unavailable</strong></div>
+      <div><span>Public profile URL</span><strong id="accountProfileUrlValue">Save a username to create your profile</strong></div>
+    </div>
+    <p class="account-panel-note">Your verified Databricks email identifies this LakeLoom account. Your public username can be edited above.</p>`);
+
+  const appearancePanel = createPanel('appearance', 'Appearance', 'Choose how much information fits on screen.');
+  appearancePanel.insertAdjacentHTML('beforeend', `
+    <div class="appearance-options" role="radiogroup" aria-labelledby="densityOptionsLabel">
+      <div class="appearance-legend" id="densityOptionsLabel">Interface density</div>
+      <label><input type="radio" name="interfaceDensity" value="comfortable" checked><i class="density-option-icon comfortable" aria-hidden="true"><b></b><b></b><b></b></i><span><strong>Comfortable</strong><small>Larger spacing and controls for everyday work.</small></span></label>
+      <label><input type="radio" name="interfaceDensity" value="compact"><i class="density-option-icon compact" aria-hidden="true"><b></b><b></b><b></b></i><span><strong>Compact</strong><small>Reduced spacing and smaller controls fit more on screen.</small></span></label>
+    </div>
+    <div class="appearance-options theme-options" role="radiogroup" aria-labelledby="themeOptionsLabel">
+      <div class="appearance-legend" id="themeOptionsLabel">Color theme</div>
+      <label><input type="radio" name="colorTheme" value="light" checked><span><strong>Light</strong><small>Bright workspace with dark text.</small></span></label>
+      <label><input type="radio" name="colorTheme" value="dark"><span><strong>Dark</strong><small>Dark workspace with softer contrast.</small></span></label>
+    </div>`);
+
+  const connectionsPanel = createPanel('connections', 'Connections', 'Connect LakeLoom to Databricks for schema inspection, previews, and direct writes.');
+  const connectionStatus = document.createElement('div');
+  connectionStatus.className = 'connection-heading';
+  connectionStatus.append(take('authDialogTitle'), take('authDialogCopy'));
+  const connectionFormHome = document.createElement('div');
+  connectionFormHome.id = 'connectionFormHome';
+  connectionFormHome.append(take('databricksConnectForm'));
+  connectionsPanel.append(connectionStatus, connectionFormHome, take('authWorkspaceLink'), take('disconnectDatabricks'), take('refreshAuth'), take('authCheckStatus'));
+
+  const sessionsPanel = createPanel('sessions', 'Sessions', 'Review the connection currently active in this app.');
+  sessionsPanel.insertAdjacentHTML('beforeend', `
+    <div class="current-session-card">
+      <span class="session-status-dot"></span>
+      <div><strong id="sessionIdentityValue">Guest user</strong><small id="sessionConnectionValue">No active Databricks session</small></div>
+      <span class="current-session-badge">Current</span>
+    </div>
+    <button class="secondary-action session-end-button" id="endCurrentSession" type="button">Disconnect current local session</button>
+    <p class="account-panel-note">Workspace SSO sessions are controlled by Databricks. Local CLI and token connections can be disconnected here.</p>`);
+
+  const setAccountTab = tab => {
+    document.querySelectorAll('[data-account-tab]').forEach(button => {
+      const selected = button.dataset.accountTab === tab;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-selected', String(selected));
+    });
+    document.querySelectorAll('[data-account-panel]').forEach(panel => {
+      panel.hidden = panel.dataset.accountPanel !== tab;
+    });
+  };
+  document.querySelectorAll('[data-account-tab]').forEach(button => button.addEventListener('click', () => setAccountTab(button.dataset.accountTab)));
+
+  const savedDensity = localStorage.getItem('lakeloom-interface-density') || 'comfortable';
+  const applyDensity = density => {
+    const compact = density === 'compact';
+    document.body.classList.toggle('ui-compact', compact);
+    document.documentElement.dataset.density = density;
+    localStorage.setItem('lakeloom-interface-density', density);
+  };
+  appearancePanel.querySelectorAll('[name="interfaceDensity"]').forEach(input => {
+    input.checked = input.value === savedDensity;
+    input.addEventListener('change', () => {
+      applyDensity(input.value);
+      showToast(`${input.value === 'compact' ? 'Compact' : 'Comfortable'} layout applied`);
+    });
+  });
+  applyDensity(savedDensity);
+
+  const savedTheme = localStorage.getItem('lakeloom-color-theme') || 'light';
+  const applyTheme = theme => {
+    document.documentElement.dataset.theme = theme;
+    document.body.classList.toggle('theme-dark', theme === 'dark');
+    localStorage.setItem('lakeloom-color-theme', theme);
+  };
+  appearancePanel.querySelectorAll('[name="colorTheme"]').forEach(input => {
+    input.checked = input.value === savedTheme;
+    input.addEventListener('change', () => {
+      applyTheme(input.value);
+      showToast(`${input.value === 'dark' ? 'Dark' : 'Light'} theme applied`);
+    });
+  });
+  applyTheme(savedTheme);
+  take('endCurrentSession').addEventListener('click', () => take('disconnectDatabricks').click());
+
+  card.remove();
+  modal.remove();
+}
+
+initializeAccountPage();
+document.getElementById('signinRefresh').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  await loadDatabricksSession();
+  button.disabled = false;
+  button.textContent = 'Check sign-in status';
+});
 renderCategories();
 renderTransformations();
 transformations.forEach(item => syncCard(item.id));
@@ -3126,7 +3439,22 @@ syncOutputSettings();
 syncDownloadFormatHint();
 updatePreview();
 initSourceSchema();
-loadDatabricksSession();
+loadDatabricksSession().then(() => {
+  const errorCode = new URLSearchParams(window.location.search).get('oauth_error');
+  if (!errorCode) return;
+  const messages = {
+    invalid_state: 'The sign-in response could not be verified. Please try again.',
+    expired: 'The sign-in request expired. Please start again.',
+    denied: 'Databricks sign-in was cancelled or denied.',
+    exchange_failed: 'Databricks could not complete the OAuth connection. Check the registered callback URL and try again.'
+  };
+  const status = document.getElementById('signinAuthStatus');
+  status.hidden = false;
+  status.classList.add('is-unavailable');
+  status.textContent = messages[errorCode] || 'Databricks sign-in could not be completed.';
+  history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+});
+loadDatabricksProfiles();
 setView(location.hash.replace(/^#/, '') || 'builder');
 
 list.addEventListener('click', event => {
@@ -3331,20 +3659,86 @@ document.querySelectorAll('[data-help-topic]').forEach(button => button.addEvent
 }));
 window.addEventListener('hashchange', () => setView(location.hash.replace(/^#/, '') || 'builder'));
 
-document.getElementById('authButton').addEventListener('click', async () => {
-  openModal('authModal', 'refreshAuth');
+const headerAccountButton = document.getElementById('authButton');
+const headerAccountMenu = document.getElementById('headerAccountMenu');
+const closeHeaderAccountMenu = () => {
+  headerAccountMenu.hidden = true;
+  headerAccountButton.setAttribute('aria-expanded', 'false');
+};
+headerAccountButton.addEventListener('click', event => {
+  event.stopPropagation();
+  const opening = headerAccountMenu.hidden;
+  headerAccountMenu.hidden = !opening;
+  headerAccountButton.setAttribute('aria-expanded', String(opening));
+});
+headerAccountMenu.addEventListener('click', event => event.stopPropagation());
+document.addEventListener('click', closeHeaderAccountMenu);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeHeaderAccountMenu();
+});
+document.querySelectorAll('[data-account-menu-tab]').forEach(button => button.addEventListener('click', async () => {
+  if (location.hash === '#account') setView('account'); else location.hash = 'account';
+  document.querySelector(`[data-account-tab="${button.dataset.accountMenuTab}"]`)?.click();
+  closeHeaderAccountMenu();
+  if (button.dataset.accountMenuTab === 'connections') await loadDatabricksProfiles();
+}));
+document.querySelector('[data-account-menu-view="help"]').addEventListener('click', () => {
+  location.hash = 'help';
+  closeHeaderAccountMenu();
+});
+document.getElementById('accountMenuSignOut').addEventListener('click', async () => {
+  closeHeaderAccountMenu();
+  if (state.session?.oauthConnected) {
+    await fetch('/api/oauth/logout', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'X-LakeLoom-Request': '1' }
+    });
+    await loadDatabricksSession();
+    return;
+  }
+  if (state.session?.localConnected) {
+    document.getElementById('disconnectDatabricks').click();
+    return;
+  }
+  if (location.hash === '#account') setView('account'); else location.hash = 'account';
+  document.querySelector('[data-account-tab="connections"]')?.click();
   await loadDatabricksProfiles();
 });
 document.getElementById('userMenuButton').addEventListener('click', async () => {
-  openModal('authModal', 'refreshAuth');
+  if (location.hash === '#account') setView('account'); else location.hash = 'account';
+  document.querySelector('[data-account-tab="profile"]')?.click();
   await loadDatabricksProfiles();
 });
-document.getElementById('databricksAuthMethod').addEventListener('change', syncDatabricksAuthFields);
+document.getElementById('databricksAuthMethod').addEventListener('change', event => {
+  document.getElementById('databricksConnectForm').dataset.methodChosen = 'true';
+  syncDatabricksAuthFields();
+});
 document.getElementById('databricksConnectForm').addEventListener('submit', async event => {
   event.preventDefault();
   const button = document.getElementById('connectDatabricks');
-  const status = document.getElementById('authCheckStatus');
+  const status = state.session?.authenticated
+    ? document.getElementById('authCheckStatus')
+    : document.getElementById('signinAuthStatus');
+  status.hidden = false;
   const method = document.getElementById('databricksAuthMethod').value;
+  if (method === 'oauth') {
+    if (state.session?.oauthAvailable !== true) {
+      status.classList.add('is-unavailable');
+      const callbackUrl = state.session?.oauthCallbackUrl || `${window.location.origin}/api/oauth/callback`;
+      status.innerHTML = `Databricks OAuth setup is incomplete. Register <strong>${escapeHtml(callbackUrl)}</strong> as the callback URL, then add the client ID and client secret to the server environment.`;
+      return;
+    }
+    const workspace = document.getElementById('databricksOAuthHost').value.trim();
+    if (!workspace) {
+      status.classList.add('is-unavailable');
+      status.textContent = 'Enter your Databricks workspace URL.';
+      return;
+    }
+    button.disabled = true;
+    button.textContent = 'Opening Databricks…';
+    window.location.assign(`/api/oauth/start?${new URLSearchParams({ workspace })}`);
+    return;
+  }
   const payload = method === 'token'
     ? { method, host: document.getElementById('databricksHost').value.trim(), token: document.getElementById('databricksToken').value.trim() }
     : { method, profile: document.getElementById('databricksProfile').value };
@@ -3369,6 +3763,195 @@ document.getElementById('databricksConnectForm').addEventListener('submit', asyn
   } finally {
     button.disabled = false;
     button.textContent = 'Connect to Databricks';
+  }
+});
+document.getElementById('editProfileUsername').addEventListener('click', () => {
+  const profileForm = document.getElementById('userProfileForm');
+  const editButton = document.getElementById('editProfileUsername');
+  const usernameInput = document.getElementById('profileUsername');
+  profileForm.dataset.editing = 'true';
+  profileForm.hidden = false;
+  editButton.hidden = true;
+  usernameInput.focus();
+  usernameInput.select();
+});
+document.getElementById('userProfileForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('saveProfileUsername');
+  const status = document.getElementById('authCheckStatus');
+  const username = document.getElementById('profileUsername').value.trim();
+  button.disabled = true;
+  button.textContent = 'Saving…';
+  try {
+    const response = await fetch('/api/profile', {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-LakeLoom-Request': '1' },
+      body: JSON.stringify({ username })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Could not save the username.');
+    event.currentTarget.dataset.editing = 'false';
+    await loadDatabricksSession();
+    showToast(`Username saved as ${result.username}`);
+  } catch (error) {
+    status.classList.remove('is-connected');
+    status.classList.add('is-unavailable');
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save username';
+  }
+});
+document.getElementById('uploadProfilePhoto').addEventListener('click', () => {
+  document.getElementById('profilePhotoInput').click();
+});
+const photoEditorState = { image: null, objectUrl: '' };
+
+function resetPhotoEditorControls() {
+  document.getElementById('photoZoom').value = '1';
+  document.getElementById('photoPositionX').value = '0';
+  document.getElementById('photoPositionY').value = '0';
+  updatePhotoCropPreview();
+}
+
+function updatePhotoCropPreview() {
+  const image = photoEditorState.image;
+  if (!image?.naturalWidth) return;
+  const stage = document.getElementById('photoCropStage');
+  const size = stage.clientWidth || 260;
+  const zoom = Number(document.getElementById('photoZoom').value);
+  const baseScale = Math.max(size / image.naturalWidth, size / image.naturalHeight);
+  const width = image.naturalWidth * baseScale * zoom;
+  const height = image.naturalHeight * baseScale * zoom;
+  const offsetX = Number(document.getElementById('photoPositionX').value) / 100 * Math.max(0, (width - size) / 2);
+  const offsetY = Number(document.getElementById('photoPositionY').value) / 100 * Math.max(0, (height - size) / 2);
+  image.style.width = `${width}px`;
+  image.style.height = `${height}px`;
+  image.style.transform = `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px))`;
+}
+
+function closePhotoEditor() {
+  document.getElementById('photoEditorModal').hidden = true;
+  document.getElementById('profilePhotoInput').value = '';
+  if (photoEditorState.objectUrl) URL.revokeObjectURL(photoEditorState.objectUrl);
+  photoEditorState.image = null;
+  photoEditorState.objectUrl = '';
+}
+
+document.getElementById('profilePhotoInput').addEventListener('change', event => {
+  const input = event.currentTarget;
+  const photo = input.files?.[0];
+  if (!photo) return;
+  const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+  if (!allowedTypes.has(photo.type)) {
+    document.getElementById('authCheckStatus').textContent = 'Use a PNG, JPEG, GIF, or WebP image.';
+    input.value = '';
+    return;
+  }
+  if (photo.size > 2 * 1024 * 1024) {
+    document.getElementById('authCheckStatus').textContent = 'Profile photos must be 2 MB or smaller.';
+    input.value = '';
+    return;
+  }
+  if (photoEditorState.objectUrl) URL.revokeObjectURL(photoEditorState.objectUrl);
+  photoEditorState.objectUrl = URL.createObjectURL(photo);
+  const image = document.getElementById('photoCropImage');
+  photoEditorState.image = image;
+  image.onload = () => {
+    document.getElementById('photoEditorModal').hidden = false;
+    resetPhotoEditorControls();
+  };
+  image.src = photoEditorState.objectUrl;
+});
+
+['photoZoom', 'photoPositionX', 'photoPositionY'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updatePhotoCropPreview);
+});
+document.getElementById('resetPhotoCrop').addEventListener('click', resetPhotoEditorControls);
+document.querySelectorAll('[data-close-photo-editor]').forEach(button => button.addEventListener('click', closePhotoEditor));
+document.getElementById('photoEditorModal').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closePhotoEditor();
+});
+document.getElementById('photoEditorForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const image = photoEditorState.image;
+  if (!image?.naturalWidth) return;
+  const button = document.getElementById('applyProfilePhoto');
+  const status = document.getElementById('authCheckStatus');
+  button.disabled = true;
+  button.textContent = 'Uploading…';
+  try {
+    const size = 512;
+    const zoom = Number(document.getElementById('photoZoom').value);
+    const baseScale = Math.max(size / image.naturalWidth, size / image.naturalHeight);
+    const width = image.naturalWidth * baseScale * zoom;
+    const height = image.naturalHeight * baseScale * zoom;
+    const offsetX = Number(document.getElementById('photoPositionX').value) / 100 * Math.max(0, (width - size) / 2);
+    const offsetY = Number(document.getElementById('photoPositionY').value) / 100 * Math.max(0, (height - size) / 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    canvas.getContext('2d').drawImage(image, (size - width) / 2 + offsetX, (size - height) / 2 + offsetY, width, height);
+    const croppedPhoto = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    if (!croppedPhoto) throw new Error('The selected image could not be processed.');
+    const formData = new FormData();
+    formData.append('photo', croppedPhoto, 'profile-photo.jpg');
+    const response = await fetch('/api/profile/photo', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'X-LakeLoom-Request': '1' },
+      body: formData
+    });
+    const responseText = await response.text();
+    let result = {};
+    try { result = responseText ? JSON.parse(responseText) : {}; } catch (_) {}
+    if (!response.ok) {
+      const fallback = response.status === 404 || response.status === 405
+        ? 'Restart LakeLoom to activate the profile photo service, then reconnect Databricks.'
+        : response.status === 413
+          ? 'Profile photos must be 2 MB or smaller.'
+          : `Could not upload the profile photo (HTTP ${response.status}).`;
+      throw new Error(result.error || fallback);
+    }
+    await loadDatabricksSession();
+    closePhotoEditor();
+    showToast('Profile photo updated');
+  } catch (error) {
+    status.classList.remove('is-connected');
+    status.classList.add('is-unavailable');
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Apply photo';
+  }
+});
+document.getElementById('removeProfilePhoto').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  const status = document.getElementById('authCheckStatus');
+  button.disabled = true;
+  button.textContent = 'Removing…';
+  try {
+    const response = await fetch('/api/profile/photo', {
+      method: 'DELETE', credentials: 'same-origin',
+      headers: { Accept: 'application/json', 'X-LakeLoom-Request': '1' }
+    });
+    const responseText = await response.text();
+    let result = {};
+    try { result = responseText ? JSON.parse(responseText) : {}; } catch (_) {}
+    if (!response.ok) {
+      const fallback = response.status === 404 || response.status === 405
+        ? 'Restart LakeLoom to activate the profile photo service, then reconnect Databricks.'
+        : `Could not remove the profile photo (HTTP ${response.status}).`;
+      throw new Error(result.error || fallback);
+    }
+    await loadDatabricksSession();
+    showToast('Profile photo removed');
+  } catch (error) {
+    status.classList.remove('is-connected');
+    status.classList.add('is-unavailable');
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Remove photo';
   }
 });
 document.getElementById('disconnectDatabricks').addEventListener('click', async event => {
@@ -3407,7 +3990,9 @@ document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.addEve
   if (event.target === backdrop) closeModal(backdrop);
 }));
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') document.querySelectorAll('.modal-backdrop:not([hidden])').forEach(closeModal);
+  if (event.key === 'Escape') document.querySelectorAll('.modal-backdrop:not([hidden])').forEach(modal => {
+    if (modal.id === 'photoEditorModal') closePhotoEditor(); else closeModal(modal);
+  });
 });
 
 document.getElementById('saveRecipe').addEventListener('click', openRecipeDialog);
@@ -3429,6 +4014,8 @@ document.getElementById('recipeForm').addEventListener('submit', event => {
   const name = document.getElementById('recipeName').value.trim();
   if (name) saveCurrentRecipe(name);
 });
+document.getElementById('recipeName').addEventListener('input', () => setRecipeNameError('recipeName', 'recipeNameError'));
+document.getElementById('renameRecipeName').addEventListener('input', () => setRecipeNameError('renameRecipeName', 'renameRecipeNameError'));
 document.getElementById('renameRecipeForm').addEventListener('submit', event => {
   event.preventDefault();
   const recipes = readRecipes();
@@ -3440,8 +4027,11 @@ document.getElementById('renameRecipeForm').addEventListener('submit', event => 
     return showToast('That saved recipe could not be found. Refresh and try again.');
   }
   const newName = document.getElementById('renameRecipeName').value.trim();
-  if (!newName) return showToast('Recipe name cannot be empty');
-  if (newName === recipe.name) return showToast('Recipe name was not changed');
+  if (!newName) return setRecipeNameError('renameRecipeName', 'renameRecipeNameError', 'Recipe name cannot be empty.');
+  if (recipeNameKey(newName) === recipeNameKey(recipe.name)) return setRecipeNameError('renameRecipeName', 'renameRecipeNameError', 'Enter a different recipe name.');
+  if (recipes.some(item => item.id !== recipe.id && recipeNameKey(item.name) === recipeNameKey(newName))) {
+    return setRecipeNameError('renameRecipeName', 'renameRecipeNameError', `A recipe named “${newName}” already exists. Choose a unique name.`);
+  }
   const updatedRecipes = recipes.map(item => item.id === recipe.id ? { ...item, name: newName } : item);
   if (!writeLocalList(recipeStorageKey, updatedRecipes)) return;
   closeModal(document.getElementById('renameRecipeModal'));

@@ -9,10 +9,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=47" />
+    <link rel="stylesheet" href="styles.css?v=84" />
   </head>
   <body>
-    <div class="app-shell">
+    <main class="signin-gate" id="signinGate" aria-labelledby="signinTitle">
+      <section class="signin-card">
+        <div class="signin-brand"><svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="10" fill="#173f35"/><path d="M8 12h5c5 0 5 6 10 6h5" fill="none" stroke="#c7f36b" stroke-width="2.6" stroke-linecap="round"/><path d="M8 19h3c5 0 5 6 10 6h7" fill="none" stroke="#8fe09c" stroke-width="2.6" stroke-linecap="round"/><circle cx="28" cy="11" r="2.2" fill="#53d58a"/></svg><span class="brand-name">lake<span class="brand-accent">loom</span><span class="brand-period">.</span></span></div>
+        <div class="signin-copy"><span>DATA ENGINEERING WORKSPACE</span><h1 id="signinTitle">Sign in to LakeLoom</h1><p>Connect your Databricks workspace to build, preview, and run production PySpark pipelines.</p></div>
+        <div class="signin-connection-mount" id="signinConnectionMount"><div class="signin-loading"><span></span>Checking your Databricks session…</div></div>
+        <p class="signin-auth-status" id="signinAuthStatus" role="status" aria-live="polite" hidden></p>
+        <details class="signin-help" open>
+          <summary>How to sign in</summary>
+          <ol>
+            <li>Open your Databricks workspace and copy only its HTTPS address, for example <code>https://dbc-xxxx.cloud.databricks.com</code>.</li>
+            <li>Paste that address into <strong>Workspace URL</strong> above and select <strong>Continue with Databricks</strong>.</li>
+            <li>Sign in on the Databricks page with your organization account and approve access if requested.</li>
+            <li>Databricks returns you to LakeLoom automatically. Your Overview page will open after a successful sign-in.</li>
+          </ol>
+          <p>When LakeLoom is opened as a Databricks App, workspace authentication is automatic. Ask your administrator for app access if sign-in does not complete.</p>
+        </details>
+        <button class="secondary-action signin-refresh" id="signinRefresh" type="button">Check sign-in status</button>
+        <p class="signin-security">Your credentials stay in the running application process and are never stored in the browser.</p>
+      </section>
+    </main>
+    <div class="app-shell" id="appShell" hidden>
       <aside class="sidebar">
         <div class="workspace-switcher">
           <span class="workspace-icon" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><path d="M4 10h5c5 0 5 6 10 6h9" /><path d="M4 18h4c5 0 5 6 10 6h10" /><circle cx="26" cy="7" r="2" /></svg></span>
@@ -26,13 +46,14 @@
           <a href="#builder" class="nav-item active" data-view="builder" aria-label="Notebook builder"><span class="nav-icon">⌘</span><span class="nav-label">Notebook builder</span><span class="nav-dot"></span></a>
           <a href="#history" class="nav-item" data-view="history" aria-label="Run history"><span class="nav-icon">◷</span><span class="nav-label">Run history</span></a>
           <a href="#recipes" class="nav-item" data-view="recipes" aria-label="Saved recipes"><span class="nav-icon">▤</span><span class="nav-label">Saved recipes</span></a>
+          <a href="#help" class="nav-item" data-view="help" aria-label="Help center"><span class="nav-icon">?</span><span class="nav-label">Help center</span></a>
         </nav>
 
         <div class="side-label connections-label">NOTEBOOK TARGET</div>
         <div class="connection-row" id="sidebarConnection"><span class="connection-status offline" id="sidebarConnectionDot"></span><span id="sidebarConnectionText">Databricks · checking</span><span class="connected">PySpark</span></div>
 
         <div class="sidebar-bottom">
-          <button class="user-row" id="userMenuButton" type="button" aria-haspopup="dialog" aria-controls="authModal"><div class="avatar" id="userAvatar">GU</div><div class="user-copy"><strong id="currentUserName">Guest user</strong><span id="currentUserRole">Checking Databricks SSO</span></div><span class="more" aria-hidden="true">···</span></button>
+          <button class="user-row" id="userMenuButton" type="button"><div class="avatar" id="userAvatar"><img id="userAvatarImage" alt="" hidden /><span id="userAvatarInitials">GU</span></div><div class="user-copy"><strong id="currentUserName">Guest user</strong><span id="currentUserRole">Checking Databricks SSO</span></div><span class="more" aria-hidden="true">···</span></button>
         </div>
       </aside>
       <button id="sidebarBackdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" hidden></button>
@@ -54,7 +75,7 @@
             </a>
             <div class="breadcrumbs"><span>Workspace</span><span class="crumb-sep">/</span><span id="breadcrumbCurrent">Notebook builder</span></div>
           </div>
-          <div class="top-actions"><button class="icon-button" type="button" aria-label="Notifications">♧<i></i></button><button class="top-help" type="button" data-go-view="help">Help center <span>↗</span></button><button id="authButton" class="auth-button" type="button" aria-haspopup="dialog" aria-controls="authModal" disabled>Checking sign-in…</button></div>
+          <div class="top-actions"><button class="icon-button" type="button" aria-label="Notifications">♧<i></i></button><div class="header-account-menu-wrap"><button id="authButton" class="header-account-button" type="button" disabled aria-haspopup="menu" aria-expanded="false" aria-label="Open account menu"><span class="header-avatar"><img id="headerAvatarImage" alt="" hidden /><span id="headerAvatarInitials">GU</span></span></button><section class="header-account-menu" id="headerAccountMenu" role="menu" hidden><div class="account-menu-identity"><span class="account-menu-avatar"><img id="menuAvatarImage" alt="" hidden /><span id="menuAvatarInitials">GU</span></span><span><strong id="menuUserName">Guest user</strong><small id="menuUserEmail">Not connected</small></span></div><div class="account-menu-separator"></div><button type="button" role="menuitem" data-account-menu-tab="profile"><span>◎</span>Profile &amp; account</button><button type="button" role="menuitem" data-account-menu-tab="appearance"><span>◐</span>Appearance</button><button type="button" role="menuitem" data-account-menu-tab="connections"><span>◇</span>Connections</button><button type="button" role="menuitem" data-account-menu-view="help"><span>?</span>Help center</button><div class="account-menu-separator"></div><button type="button" role="menuitem" id="accountMenuSignOut" class="account-menu-danger"><span>↪</span>Disconnect</button></section></div></div>
         </header>
 
         <div class="page-wrap">
@@ -195,7 +216,7 @@
 
           <section class="app-view secondary-view" id="overviewView" hidden>
             <div class="page-heading">
-              <div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> OVERVIEW</div><h1>Your data prep<br class="mobile-break" /> <span>workspace.</span></h1><p class="page-subtitle">A quick view of your notebook activity and saved recipes on this browser.</p></div>
+              <div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> OVERVIEW</div><h1>Your data prep<br class="mobile-break" /> <span>workspace.</span></h1><p class="page-subtitle">A quick view of your local notebook activity and account recipes.</p></div>
               <button class="primary-action" data-go-view="builder" type="button">＋ New notebook</button>
             </div>
             <div class="metric-grid">
@@ -207,7 +228,7 @@
               <section class="dashboard-card"><div class="dashboard-card-heading"><div><h2>Get started</h2><p>Build and export a reusable PySpark notebook.</p></div><span>✳</span></div><button class="quick-link" data-go-view="builder" type="button"><span>01</span> Configure a notebook <b>↗</b></button><button class="quick-link" data-go-view="recipes" type="button"><span>02</span> Open saved recipes <b>↗</b></button></section>
               <section class="dashboard-card"><div class="dashboard-card-heading"><div><h2>Recent activity</h2><p>Local code exports and recipe changes.</p></div><button class="text-action" data-go-view="history" type="button">View history ↗</button></div><div id="overviewRecentActivity" class="activity-list"></div></section>
             </div>
-            <p class="workspace-note"><span>ⓘ</span> This frontend stores recipes and export history in your browser. Secure sign-in and live Databricks job runs need a connected backend.</p>
+            <p class="workspace-note"><span>ⓘ</span> Saved recipes are linked to your signed-in account. Notebook export history remains local to this browser.</p>
           </section>
 
           <section class="app-view secondary-view" id="historyView" hidden>
@@ -217,10 +238,10 @@
           </section>
 
           <section class="app-view secondary-view" id="recipesView" hidden>
-            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> LIBRARY</div><h1>Saved <span>recipes.</span></h1><p class="page-subtitle">Save and reuse notebook settings stored in this browser. Select one or more recipes to remove them together.</p></div><div class="recipe-page-actions"><label class="recipe-select-all"><input id="selectAllRecipes" type="checkbox" /> Select all</label><button class="secondary-action danger-action" id="deleteSelectedRecipes" type="button">Delete selected</button><button class="primary-action" id="saveRecipeFromLibrary" type="button">＋ Save current setup</button></div></div>
+            <div class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>WORKSPACE <span class="eyebrow-slash">/</span> LIBRARY</div><h1>Saved <span>recipes.</span></h1><p class="page-subtitle">Save and reuse notebook settings linked to your account. Select one or more recipes to remove them together.</p></div><div class="recipe-page-actions"><label class="recipe-select-all"><input id="selectAllRecipes" type="checkbox" /> Select all</label><button class="secondary-action danger-action" id="deleteSelectedRecipes" type="button">Delete selected</button><button class="primary-action" id="saveRecipeFromLibrary" type="button">＋ Save current setup</button></div></div>
             <div id="recipeList" class="recipe-grid"></div>
             <div id="emptyRecipes" class="library-empty" hidden><span>▤</span><strong>No saved recipes yet</strong><p>Configure a notebook, then save it to reuse the source, transformations, and output settings.</p><button class="primary-action" data-go-view="builder" type="button">Open notebook builder</button></div>
-            <p class="workspace-note"><span>ⓘ</span> Saved recipes stay in this browser and do not upload source files.</p>
+            <p class="workspace-note"><span>ⓘ</span> Saved recipes follow your signed-in account and never include uploaded source-file contents.</p>
           </section>
 
           <section class="app-view secondary-view documentation-view" id="documentationView" hidden>
@@ -235,9 +256,20 @@
               <article class="docs-card"><span class="docs-step">06</span><h2>Configure output</h2><p>Enable the write step and choose Delta, CSV, JSON, TXT, Parquet, Avro, ORC, or Iceberg.</p><ul><li>Set the Databricks destination and write mode.</li><li>Add partition columns only when they improve downstream reads.</li><li>Review format-specific settings such as CSV headers and compression.</li></ul></article>
               <article class="docs-card"><span class="docs-step">07</span><h2>Preview with Databricks</h2><p>Connect through Databricks Apps or a configured Databricks Connect profile. Run preview executes the generated notebook against the connected workspace and displays a limited result.</p><ul><li>Review the code before running it.</li><li>Use Edit code for manual adjustments.</li><li>Reset code to regenerate it from the selected options.</li></ul></article>
               <article class="docs-card"><span class="docs-step">08</span><h2>Export the notebook</h2><p>Click <strong>Export notebook</strong> and choose a format. The download begins immediately.</p><ul><li>Databricks source: <code>.py</code></li><li>Jupyter: <code>.ipynb</code></li><li>Plain text, Markdown, HTML, or Print / Save as PDF</li></ul></article>
-              <article class="docs-card"><span class="docs-step">09</span><h2>Save and reuse recipes</h2><p>Save the current source, transformations, and output settings as a recipe. Open Saved recipes to restore, rename, or delete a configuration.</p><ul><li>Recipes are stored in the current browser.</li><li>Source file contents are not stored in a recipe.</li><li>Verify paths before running a restored recipe.</li></ul></article>
+              <article class="docs-card"><span class="docs-step">09</span><h2>Save and reuse recipes</h2><p>Save the current source, transformations, and output settings as a recipe. Open Saved recipes to restore, rename, or delete a configuration.</p><ul><li>Recipes are linked to the signed-in account.</li><li>Each recipe name must be unique within that account.</li><li>Source file contents are not stored in a recipe.</li><li>Verify paths before running a restored recipe.</li></ul></article>
               <article class="docs-card"><span class="docs-step">10</span><h2>Review activity</h2><p>Run history records local notebook exports and recipe changes. Databricks execution status requires a connected backend.</p><ul><li>Use Clear history to remove local entries.</li><li>Browser data is specific to the current browser profile.</li><li>Report problems through the footer issue link.</li></ul></article>
             </div>
+            <section class="docs-section docs-source-guide">
+              <div class="docs-section-heading"><span>SOURCE SETUP</span><h2>Upload data and copy the correct path</h2><p>Local selection is designed for schema inspection. The generated notebook reads the source from Databricks, a Unity Catalog Volume, or an ADLS Gen2 location.</p></div>
+              <div class="docs-detail-grid">
+                <article><h3>Files up to 60 MB</h3><ol><li>Choose <strong>Files</strong> under Add source.</li><li>Select CSV, JSON, TXT, Parquet, Avro, or ORC files with the same format.</li><li>LakeLoom inspects the files and displays their columns.</li><li>Upload the same data to Databricks or ADLS before running the exported notebook, then enter that remote path in the source field.</li></ol><p>The 60 MB limit applies to the combined size of one local selection. LakeLoom does not upload these files to Databricks.</p></article>
+                <article><h3>Delta or Iceberg folders</h3><ol><li>Choose <strong>Table folder</strong>.</li><li>Select the complete Delta or Iceberg directory.</li><li>For a folder over 60 MB, upload it to a Unity Catalog Volume or ADLS first.</li><li>Choose <strong>Databricks</strong>, paste the uploaded folder path, select its format, and click <strong>Load from Databricks</strong>.</li></ol><p>For Delta folders containing only checkpoints or large data files, use remote schema loading.</p></article>
+                <article><h3>Unity Catalog Volume path</h3><ol><li>In Databricks, open <strong>Catalog</strong> and select the required catalog, schema, and Volume.</li><li>Upload the file or folder into that Volume.</li><li>Copy or construct the full path, including the file or table folder name.</li><li>Paste it into LakeLoom’s Databricks path field.</li></ol><p>Example:</p><code>/Volumes/main/engineering/landing/orders/orders.json</code></article>
+                <article><h3>ADLS Gen2 path</h3><ol><li>Upload the source with Azure Portal, Azure Storage Explorer, ADF, or another approved ingestion process.</li><li>Use its container, storage account, and directory to construct the ABFS path.</li><li>Confirm that Databricks has permission through a storage credential and external location.</li><li>Paste the complete path into LakeLoom and load the schema.</li></ol><p>Example:</p><code>abfss://landing@myaccount.dfs.core.windows.net/orders/orders.parquet</code></article>
+                <article><h3>Databricks catalog table</h3><ol><li>Open Catalog Explorer in Databricks.</li><li>Locate the table and copy its three-part name.</li><li>Choose <strong>Databricks</strong> in LakeLoom.</li><li>Select the format, paste the name, and click <strong>Load from Databricks</strong>.</li></ol><p>Example:</p><code>main.sales.customer_orders</code></article>
+                <article><h3>Sources larger than 60 MB</h3><p>Files and folders larger than 60 MB cannot be inspected through direct browser upload. Upload them to Databricks or ADLS first, then use:</p><ul><li><code>catalog.schema.table</code> for a registered table</li><li><code>/Volumes/catalog/schema/volume/path</code> for a Unity Catalog Volume</li><li><code>abfss://container@account.dfs.core.windows.net/path</code> for ADLS Gen2</li></ul><p>LakeLoom reads only the schema through Databricks; the large dataset is not transferred through the browser.</p></article>
+              </div>
+            </section>
             <section class="docs-section">
               <div class="docs-section-heading"><span>REFERENCE</span><h2>Transformation guide</h2><p>Choose the smallest set of steps that produces the required result. Steps execute in their selected order.</p></div>
               <div class="docs-table-wrap"><table class="docs-table"><thead><tr><th>Category</th><th>Use it for</th><th>Common operations and guidance</th></tr></thead><tbody>
@@ -284,7 +316,7 @@
                 <article><h3>Incremental loading</h3><p>Filter with a watermark column or read Delta Change Data Feed from a starting version. Use checkpoints or a control table to persist progress in an orchestrated job.</p></article>
                 <article><h3>Monitoring</h3><p>Creates a run ID, UTC timestamp, status, and row-count metrics DataFrame that can be displayed or written to an audit target.</p></article>
                 <article><h3>Generated tests</h3><p>Adds assertions for required columns, null values, unique keys, and minimum row counts. Run these before writes or SCD operations.</p></article>
-                <article><h3>Saved recipes</h3><p>Recipes stay in the current browser profile. Open a recipe to restore its notebook settings, or select one or more recipes to delete them.</p></article>
+                <article><h3>Saved recipes</h3><p>Recipes follow the signed-in account. Open a recipe to restore its notebook settings, or select one or more recipes to delete them.</p></article>
               </div>
             </section>
 
@@ -306,7 +338,7 @@
                 <details><summary>Why is a Databricks path required for a local file?</summary><p>The local file is used for schema inspection. The exported notebook runs in Databricks and needs a table or storage path available there.</p></details>
                 <details><summary>Why is Run preview unavailable?</summary><p>Configure Databricks Connect or run LakeLoom as a Databricks App with workspace authentication and source permissions.</p></details>
                 <details><summary>Do new DataFrame steps duplicate data?</summary><p>No. Spark DataFrames are lazy query plans. Assigning a new variable does not execute, copy, cache, or checkpoint the data.</p></details>
-                <details><summary>Where are recipes and history stored?</summary><p>They are stored in the current browser profile. They do not automatically transfer to another browser or device.</p></details>
+                <details><summary>Where are recipes and history stored?</summary><p>Recipes are stored for the signed-in account. Notebook download and change history remains in the current browser.</p></details>
               </div>
             </section>
             <div class="docs-finish"><div><strong>Ready to build?</strong><p>Open the builder and configure your first reusable PySpark notebook.</p></div><button class="primary-action" data-go-view="builder" type="button">Start building</button></div>
@@ -322,8 +354,8 @@
               <button type="button" data-help-topic="export"><span>↓</span><strong>Export and recipes</strong><small>Downloads and saved configurations</small></button>
             </div>
             <section class="help-panel" data-help-section="connection authentication oauth profile serverless databricks">
-              <div class="docs-section-heading"><span>CONNECTION</span><h2>Connect from your local computer</h2><p>Use the Connect Databricks dialog to validate an OAuth CLI profile or a personal access token.</p></div>
-              <ol class="help-steps"><li><strong>Install the CLI</strong><code>brew install databricks/tap/databricks</code></li><li><strong>Authenticate in your browser</strong><code>databricks auth login --configure-serverless --host https://&lt;your-workspace-host&gt;</code></li><li><strong>Open the connection dialog</strong><code>Connect Databricks → CLI profile</code><small>Select the profile created by the CLI and choose Connect to Databricks.</small></li><li><strong>Token alternative</strong><code>Connect Databricks → Personal access token</code><small>Enter the HTTPS workspace URL and token. The token is kept only in the running app process.</small></li></ol>
+              <div class="docs-section-heading"><span>CONNECTION</span><h2>Connect from your local computer</h2><p>Use Account settings to validate an OAuth CLI profile or a personal access token.</p></div>
+              <ol class="help-steps"><li><strong>Install the CLI</strong><code>brew install databricks/tap/databricks</code></li><li><strong>Authenticate in your browser</strong><code>databricks auth login --configure-serverless --host https://&lt;your-workspace-host&gt;</code></li><li><strong>Open Account settings</strong><code>Connect Databricks → CLI profile</code><small>Select the profile created by the CLI and choose Connect to Databricks.</small></li><li><strong>Token alternative</strong><code>Connect Databricks → Personal access token</code><small>Enter the HTTPS workspace URL and token. The token is kept only in the running app process.</small></li></ol>
             </section>
             <section class="help-panel" data-help-section="preview run execution disabled error permissions">
               <div class="docs-section-heading"><span>PREVIEW</span><h2>Preview troubleshooting</h2></div>
@@ -335,10 +367,18 @@
             </section>
             <section class="help-panel" data-help-section="export download recipe save import browser">
               <div class="docs-section-heading"><span>EXPORTS</span><h2>Downloads and saved recipes</h2></div>
-              <div class="docs-faq"><details><summary>Where are recipes stored?</summary><p>Recipes and activity history are stored in this browser profile.</p></details><details><summary>How do I remove several recipes?</summary><p>Select the checkbox on each recipe, then choose Delete selected. Use Select all to select every saved recipe.</p></details><details><summary>Which notebook formats can I download?</summary><p>LakeLoom exports Databricks source, Jupyter, plain text, Markdown, HTML, and browser print or PDF formats.</p></details></div>
+              <div class="docs-faq"><details><summary>Where are recipes stored?</summary><p>Recipes are linked to your signed-in account. Activity history remains in the current browser profile.</p></details><details><summary>How do I remove several recipes?</summary><p>Select the checkbox on each recipe, then choose Delete selected. Use Select all to select every saved recipe.</p></details><details><summary>Which notebook formats can I download?</summary><p>LakeLoom exports Databricks source, Jupyter, plain text, Markdown, HTML, and browser print or PDF formats.</p></details></div>
             </section>
             <p class="help-empty" id="helpEmpty" hidden>No matching help topics were found. Try a shorter search.</p>
             <div class="docs-finish"><div><strong>Still need help?</strong><p>Open an issue with the error message and the steps that produced it. Do not include access tokens.</p></div><a class="primary-action" href="https://github.com/madhurraj11/AI_Agent/issues/new" target="_blank" rel="noopener noreferrer">Report an issue ↗</a></div>
+          </section>
+
+          <section class="app-view secondary-view account-view" id="accountView" hidden>
+            <section class="page-heading account-page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span>ACCOUNT</div><h1>Account settings</h1><p class="page-subtitle">Manage your public profile, Databricks connection, and account identity.</p></div></section>
+            <div class="account-settings-layout">
+              <aside class="account-settings-nav" aria-label="Account settings"><button class="active" type="button" data-account-tab="profile" aria-selected="true"><span>◎</span>Profile &amp; account</button><button type="button" data-account-tab="appearance" aria-selected="false"><span>◐</span>Appearance</button><div></div><small>ACCESS</small><button type="button" data-account-tab="connections" aria-selected="false"><span>◇</span>Connections</button><button type="button" data-account-tab="sessions" aria-selected="false"><span>◷</span>Sessions</button></aside>
+              <div class="account-settings-content" id="accountPageContent"></div>
+            </div>
           </section>
 
           <footer class="page-footer">
@@ -356,14 +396,30 @@
       </main>
     </div>
     <div class="toast" id="toast" role="status"></div>
-    <div class="modal-backdrop" id="authModal" hidden>
-      <section class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle">
+    <div class="modal-backdrop" id="authModal" hidden aria-hidden="true">
+      <section class="dialog-card account-dialog" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle">
         <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
         <div class="dialog-mark">⌘</div><h2 id="authDialogTitle">Databricks workspace sign-in</h2>
         <p id="authDialogCopy">Sign-in is managed by Databricks Apps using your workspace SSO. Open this app from Databricks Apps to authenticate.</p>
-        <div class="auth-identity-card" id="authIdentityCard" hidden><span class="auth-identity-icon">✓</span><div><strong id="authIdentityName"></strong><small id="authIdentityEmail"></small></div></div>
+        <div class="auth-identity-card" id="authIdentityCard" hidden><span class="auth-identity-icon identity-profile-avatar"><img id="identityAvatarImage" alt="" hidden /><span id="identityAvatarInitials">GU</span></span><div><strong id="authIdentityName"></strong><small id="authIdentityEmail"></small></div><button class="identity-edit-button" id="editProfileUsername" type="button" hidden>Edit username</button></div>
+        <form class="user-profile-form" id="userProfileForm" hidden>
+          <label class="field dialog-field"><span>Unique username</span><input id="profileUsername" required minlength="3" maxlength="30" pattern="[A-Za-z][A-Za-z0-9._-]{2,29}" autocomplete="username" placeholder="madhur_chauhan" /></label>
+          <p class="connection-field-help">One username is linked to your verified Databricks email. Usernames are unique across LakeLoom accounts.</p>
+          <button class="secondary-action dialog-primary" id="saveProfileUsername" type="submit">Save username</button>
+        </form>
+        <div class="profile-photo-actions" id="profilePhotoActions" hidden>
+          <input id="profilePhotoInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden />
+          <button class="secondary-action" id="uploadProfilePhoto" type="button">Upload photo</button>
+          <button class="text-action profile-photo-remove" id="removeProfilePhoto" type="button" hidden>Remove photo</button>
+          <small>PNG, JPEG, GIF, or WebP · maximum 2 MB</small>
+        </div>
+        <a class="public-profile-link" id="publicProfileLink" href="#" hidden>View public profile <span>↗</span></a>
         <form class="databricks-connect-form" id="databricksConnectForm" hidden>
-          <label class="field dialog-field"><span>Connection method</span><select id="databricksAuthMethod"><option value="profile">Databricks CLI profile (recommended)</option><option value="token">Personal access token</option></select></label>
+          <label class="field dialog-field auth-method-field"><span>Connection method</span><select id="databricksAuthMethod"><option id="databricksOAuthOption" value="oauth" selected>Databricks OAuth</option><option value="profile">Databricks CLI profile</option><option value="token">Personal access token</option></select></label>
+          <div id="databricksOAuthFields" hidden>
+            <label class="field dialog-field"><span>Workspace URL</span><input id="databricksOAuthHost" type="url" inputmode="url" autocomplete="url" placeholder="https://your-workspace.cloud.databricks.com" /></label>
+            <p class="connection-field-help">You will continue to Databricks to sign in. LakeLoom never receives your password.</p>
+          </div>
           <div id="databricksProfileFields">
             <label class="field dialog-field"><span>CLI profile</span><select id="databricksProfile"><option value="">Loading profiles…</option></select></label>
             <p class="connection-field-help" id="databricksProfileHelp">OAuth profiles are read securely from ~/.databrickscfg.</p>
@@ -382,12 +438,25 @@
         <button class="text-action dialog-cancel" type="button" data-close-modal>Close</button>
       </section>
     </div>
+    <div class="modal-backdrop" id="photoEditorModal" hidden>
+      <form class="dialog-card photo-editor-dialog" id="photoEditorForm" role="dialog" aria-modal="true" aria-labelledby="photoEditorTitle">
+        <button class="dialog-close" type="button" data-close-photo-editor aria-label="Close">×</button>
+        <div class="dialog-mark">◉</div><h2 id="photoEditorTitle">Adjust profile photo</h2>
+        <p>Move and zoom the photo until it fits inside the profile circle.</p>
+        <div class="photo-crop-stage" id="photoCropStage"><img id="photoCropImage" alt="Profile photo preview" /></div>
+        <label class="photo-adjust-control"><span>Zoom</span><input id="photoZoom" type="range" min="1" max="3" value="1" step="0.01" /></label>
+        <label class="photo-adjust-control"><span>Horizontal position</span><input id="photoPositionX" type="range" min="-100" max="100" value="0" step="1" /></label>
+        <label class="photo-adjust-control"><span>Vertical position</span><input id="photoPositionY" type="range" min="-100" max="100" value="0" step="1" /></label>
+        <div class="dialog-actions"><button class="secondary-action" id="resetPhotoCrop" type="button">Reset</button><button class="secondary-action" type="button" data-close-photo-editor>Cancel</button><button class="primary-action" id="applyProfilePhoto" type="submit">Apply photo</button></div>
+      </form>
+    </div>
     <div class="modal-backdrop" id="recipeModal" hidden>
       <form class="dialog-card" id="recipeForm" role="dialog" aria-modal="true" aria-labelledby="recipeDialogTitle">
         <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
         <div class="dialog-mark">▤</div><h2 id="recipeDialogTitle">Save this recipe</h2>
         <p>Save the current source, selected transformations, and output settings to reuse them later.</p>
-        <label class="field dialog-field"><span>Recipe name</span><input id="recipeName" required maxlength="60" placeholder="Employee data cleanup" /></label>
+        <label class="field dialog-field"><span>Recipe name</span><input id="recipeName" required maxlength="60" placeholder="Employee data cleanup" aria-describedby="recipeNameError" /></label>
+        <p class="dialog-field-error" id="recipeNameError" role="alert" hidden></p>
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" type="submit">Save recipe</button></div>
       </form>
     </div>
@@ -396,7 +465,8 @@
         <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
         <div class="dialog-mark">✎</div><h2 id="renameRecipeDialogTitle">Rename recipe</h2>
         <p>Enter a clear name that will help you identify this saved configuration.</p>
-        <label class="field dialog-field"><span>Recipe name</span><input id="renameRecipeName" required maxlength="80" autocomplete="off" placeholder="Employee data cleanup" /></label>
+        <label class="field dialog-field"><span>Recipe name</span><input id="renameRecipeName" required maxlength="80" autocomplete="off" placeholder="Employee data cleanup" aria-describedby="renameRecipeNameError" /></label>
+        <p class="dialog-field-error" id="renameRecipeNameError" role="alert" hidden></p>
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" type="submit">Rename recipe</button></div>
       </form>
     </div>
@@ -404,7 +474,7 @@
       <form class="dialog-card" id="deleteRecipeForm" role="alertdialog" aria-modal="true" aria-labelledby="deleteRecipeDialogTitle" aria-describedby="deleteRecipeDialogCopy">
         <button class="dialog-close" type="button" data-close-modal aria-label="Close">×</button>
         <div class="dialog-mark dialog-mark-danger" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 21a2 2 0 0 1-2-2V7h14v12a2 2 0 0 1-2 2H7Zm9-17 1 1h4v2H3V5h4l1-1h8Zm-7 6v8h2v-8H9Zm4 0v8h2v-8h-2Z"/></svg></div><h2 id="deleteRecipeDialogTitle">Delete recipe?</h2>
-        <p id="deleteRecipeDialogCopy">This saved recipe will be removed from this browser.</p>
+        <p id="deleteRecipeDialogCopy">This saved recipe will be removed from your account.</p>
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action dialog-danger" id="confirmDeleteRecipes" type="submit">Delete recipe</button></div>
       </form>
     </div>
@@ -425,7 +495,7 @@
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" id="confirmWriteOutput" type="submit">Write data</button></div>
       </form>
     </div>
-    <script src="schema.js?v=41"></script>
-    <script src="app.js?v=46"></script>
+    <script src="schema.js?v=42"></script>
+    <script src="app.js?v=77"></script>
   </body>
 </html>

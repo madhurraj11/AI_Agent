@@ -135,7 +135,7 @@ async function loadSourceSchema(remote = false) {
       if (format === 'delta') files = files.filter(file => /(?:^|\/)_delta_log\/\d+\.json$/.test(file.webkitRelativePath || file.name));
       if (format === 'iceberg') files = files.filter(file => file.name.endsWith('.metadata.json'));
       if (!files.length) throw new Error('No schema metadata was found in this folder. Use Load from Databricks to inspect the table.');
-      if (files.reduce((size, file) => size + file.size, 0) > 60 * 1024 * 1024) throw new Error('Local inspection supports up to 60 MB per selection. Use Load from Databricks for larger sources.');
+      if (files.reduce((size, file) => size + file.size, 0) > 60 * 1024 * 1024) throw new Error('This selection is larger than 60 MB. Upload it to Databricks or ADLS first, then choose Databricks and load the schema from its table or storage path.');
       body = new FormData();
       body.append('format', format);
       body.append('version', version);

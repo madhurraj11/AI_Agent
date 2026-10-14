@@ -5,6 +5,7 @@ import os
 import subprocess
 import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from werkzeug.serving import make_server
 
@@ -57,14 +58,25 @@ def _open_browser(url):
 def main():
     log_path = _configure_logging()
     try:
+        public_url = os.environ.get("LAKELOOM_PUBLIC_URL", "").strip()
+        oauth_port_required = bool(
+            public_url
+            and os.environ.get("DATABRICKS_OAUTH_CLIENT_ID", "").strip()
+            and os.environ.get("DATABRICKS_OAUTH_CLIENT_SECRET", "").strip()
+        )
+        public_port = urlsplit(public_url).port if public_url else None
         try:
-            preferred_port = int(os.environ.get("LAKELOOM_PORT", "8000"))
+            preferred_port = int(os.environ.get("LAKELOOM_PORT", (public_port or 8000) if oauth_port_required else "8000"))
         except ValueError:
             preferred_port = 8000
 
         try:
             server = make_server("127.0.0.1", preferred_port, app, threaded=True)
         except (OSError, SystemExit):
+            if oauth_port_required:
+                raise RuntimeError(
+                    f"OAuth callback port {preferred_port} is unavailable. Close the app using that port and reopen LakeLoom."
+                )
             logging.exception("Port %s is unavailable; selecting a free port", preferred_port)
             server = make_server("127.0.0.1", 0, app, threaded=True)
 

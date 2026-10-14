@@ -4,6 +4,6 @@ command:
   - --bind
   - 0.0.0.0:$DATABRICKS_APP_PORT
   - --workers
-  - "2"
+  - "1"
   - --timeout
   - "180"

@@ -2,16 +2,24 @@
 
 import os
 import ast
+import base64
 import builtins
 import configparser
+import hashlib
+import io
 import json
 import re
+import secrets
+import sqlite3
 import sys
 import threading
+import time
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.request import Request, urlopen
 
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, redirect, request, send_file, send_from_directory, session as flask_session, url_for
 from source_schema import inspect_files, spark_columns
 
 
@@ -37,14 +45,43 @@ def _find_app_root():
 
 
 APP_ROOT = _find_app_root()
+
+
+def _load_local_environment(path):
+    """Load a small local .env file without overriding deployment variables."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        clean = line.strip()
+        if not clean or clean.startswith("#") or "=" not in clean:
+            continue
+        key, value = clean.split("=", 1)
+        key = key.strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            os.environ.setdefault(key, value.strip().strip("'\""))
+
+
+_load_local_environment(APP_ROOT / ".env")
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
+app.config["SECRET_KEY"] = os.environ.get("LAKELOOM_SECRET_KEY") or secrets.token_hex(32)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("LAKELOOM_COOKIE_SECURE", "").lower() in {"1", "true", "yes"}
 
 _spark_session = None
 _spark_session_lock = threading.Lock()
 _databricks_config = None
 _databricks_connection = {}
 _preview_run_lock = threading.Lock()
+_oauth_sessions = {}
+_oauth_lock = threading.Lock()
+_profile_store_path = Path(
+    os.environ.get("LAKELOOM_PROFILE_STORE", str(Path.home() / ".lakeloom" / "profiles.db"))
+).expanduser()
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{2,29}$")
 _SAFE_IMPORTS = {
     "json",
     "re",
@@ -224,6 +261,9 @@ def _safe_preview_import(name, globals=None, locals=None, fromlist=(), level=0):
 
 
 def _get_spark_session():
+    oauth_session = _current_oauth_session()
+    if oauth_session and oauth_session.get("spark") is not None:
+        return oauth_session["spark"]
     global _spark_session
     if _spark_session is None:
         with _spark_session_lock:
@@ -259,6 +299,113 @@ def _clean_workspace_url(value):
     if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         raise ValueError("Enter only the workspace URL, without a path or query string.")
     return urlunsplit(("https", parsed.netloc, "", "", ""))
+
+
+def _clean_oauth_workspace_url(value):
+    host = _clean_workspace_url(value)
+    hostname = (urlsplit(host).hostname or "").casefold()
+    allowed_suffixes = (".databricks.com", ".databricks.net", ".databricks.us")
+    if not hostname.endswith(allowed_suffixes):
+        raise ValueError("Enter a valid Databricks workspace URL.")
+    return host
+
+
+def _oauth_settings():
+    return (
+        os.environ.get("DATABRICKS_OAUTH_CLIENT_ID", "").strip(),
+        os.environ.get("DATABRICKS_OAUTH_CLIENT_SECRET", "").strip(),
+    )
+
+
+def _oauth_redirect_uri():
+    public_url = os.environ.get("LAKELOOM_PUBLIC_URL", "").strip().rstrip("/")
+    if public_url:
+        parsed = urlsplit(public_url)
+        local_http = parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+        if (parsed.scheme != "https" and not local_http) or not parsed.hostname or parsed.query or parsed.fragment:
+            raise ValueError("LAKELOOM_PUBLIC_URL must be an HTTPS origin, or localhost during development.")
+        return f"{public_url}/api/oauth/callback"
+    return url_for("oauth_callback", _external=True, _scheme="https" if app.config["SESSION_COOKIE_SECURE"] else request.scheme)
+
+
+def _oauth_post(url, values, client_id, client_secret):
+    encoded_credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    oauth_request = Request(
+        url,
+        data=urlencode(values).encode(),
+        headers={"Authorization": f"Basic {encoded_credentials}", "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
+        method="POST",
+    )
+    with urlopen(oauth_request, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _oauth_identity(host, access_token):
+    identity_request = Request(
+        f"{host}/api/2.0/preview/scim/v2/Me",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    with urlopen(identity_request, timeout=20) as response:
+        identity = json.loads(response.read().decode("utf-8"))
+    emails = identity.get("emails") if isinstance(identity.get("emails"), list) else []
+    primary_email = next((item.get("value", "") for item in emails if isinstance(item, dict) and item.get("primary")), "")
+    email = str(primary_email or identity.get("userName") or "")[:320]
+    display_name = str(identity.get("displayName") or email or "Databricks user")[:256]
+    return {"email": email, "displayName": display_name, "userId": str(identity.get("id") or "")[:256]}
+
+
+def _current_oauth_session(refresh=True):
+    """Return the OAuth connection owned by this signed browser session."""
+    session_id = flask_session.get("oauth_session_id", "")
+    if not session_id:
+        return {}
+    with _oauth_lock:
+        oauth_session = _oauth_sessions.get(session_id)
+        if not oauth_session:
+            flask_session.pop("oauth_session_id", None)
+            return {}
+        oauth_session = dict(oauth_session)
+    if not refresh or int(oauth_session.get("expiresAt") or 0) > int(time.time()) + 60:
+        return oauth_session
+    refresh_token = str(oauth_session.get("refreshToken") or "")
+    client_id, client_secret = _oauth_settings()
+    if not refresh_token or not client_id or not client_secret:
+        return {}
+    try:
+        token_data = _oauth_post(f'{oauth_session["host"]}/oidc/v1/token', {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "scope": "all-apis offline_access openid email profile",
+        }, client_id, client_secret)
+        access_token = str(token_data.get("access_token") or "")
+        if not access_token:
+            return {}
+        from databricks.connect import DatabricksSession
+        oauth_session.update({
+            "accessToken": access_token,
+            "refreshToken": str(token_data.get("refresh_token") or refresh_token),
+            "expiresAt": int(time.time()) + int(token_data.get("expires_in") or 3600),
+            "spark": DatabricksSession.Builder().host(oauth_session["host"]).token(access_token).serverless().getOrCreate(),
+        })
+        with _oauth_lock:
+            if session_id in _oauth_sessions:
+                _oauth_sessions[session_id] = oauth_session
+        return oauth_session
+    except (ValueError, HTTPError, URLError, OSError, json.JSONDecodeError):
+        with _oauth_lock:
+            _oauth_sessions.pop(session_id, None)
+        flask_session.pop("oauth_session_id", None)
+        return {}
+
+
+def _request_identity_email():
+    if os.environ.get("DATABRICKS_APP_NAME"):
+        return request.headers.get("x-forwarded-email", "")
+    oauth_session = _current_oauth_session()
+    if oauth_session:
+        return oauth_session.get("email", "")
+    return _databricks_connection.get("email", "")
 
 
 def _local_profiles():
@@ -302,12 +449,109 @@ def _json_safe(value):
     return json.loads(json.dumps(value, default=str))
 
 
+def _profile_database():
+    _profile_store_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(_profile_store_path, timeout=5)
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS user_profiles ("
+        "email TEXT PRIMARY KEY COLLATE NOCASE, "
+        "username TEXT NOT NULL UNIQUE COLLATE NOCASE, "
+        "photo BLOB, photo_mime TEXT)"
+    )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(user_profiles)")}
+    if "photo" not in columns:
+        connection.execute("ALTER TABLE user_profiles ADD COLUMN photo BLOB")
+    if "photo_mime" not in columns:
+        connection.execute("ALTER TABLE user_profiles ADD COLUMN photo_mime TEXT")
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS user_recipe_stores ("
+        "email TEXT PRIMARY KEY COLLATE NOCASE, "
+        "recipes_json TEXT NOT NULL, "
+        "updated_at INTEGER NOT NULL)"
+    )
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS user_recipes ("
+        "email TEXT NOT NULL COLLATE NOCASE, "
+        "recipe_id TEXT NOT NULL, "
+        "name TEXT NOT NULL, "
+        "recipe_json TEXT NOT NULL, "
+        "created_at TEXT, "
+        "updated_at INTEGER NOT NULL, "
+        "PRIMARY KEY (email, recipe_id))"
+    )
+    # Move records created by the earlier one-JSON-document recipe store into
+    # individually queryable rows. Removing migrated rows prevents deleted
+    # recipes from being restored by a later database connection.
+    for email, recipes_json, updated_at in connection.execute(
+        "SELECT email, recipes_json, updated_at FROM user_recipe_stores"
+    ).fetchall():
+        try:
+            legacy_recipes = json.loads(recipes_json)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(legacy_recipes, list):
+            continue
+        for index, recipe in enumerate(legacy_recipes):
+            if not isinstance(recipe, dict):
+                continue
+            recipe_id = str(recipe.get("id") or f"legacy-{updated_at}-{index}")[:200]
+            name = str(recipe.get("name") or "Untitled recipe")[:200]
+            connection.execute(
+                "INSERT OR IGNORE INTO user_recipes "
+                "(email, recipe_id, name, recipe_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (email, recipe_id, name, json.dumps(recipe, ensure_ascii=False, separators=(",", ":")), str(recipe.get("createdAt") or ""), updated_at),
+            )
+        connection.execute("DELETE FROM user_recipe_stores WHERE email = ?", (email,))
+    connection.execute(
+        "DELETE FROM user_recipes WHERE rowid NOT IN ("
+        "SELECT MAX(rowid) FROM user_recipes GROUP BY email, name COLLATE NOCASE)"
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS user_recipes_unique_name "
+        "ON user_recipes (email, name COLLATE NOCASE)"
+    )
+    return connection
+
+
+def _profile_for_email(email):
+    email_key = str(email or "").strip().casefold()
+    if not email_key:
+        return {}
+    try:
+        with _profile_database() as connection:
+            row = connection.execute(
+                "SELECT username, photo IS NOT NULL FROM user_profiles WHERE email = ?", (email_key,)
+            ).fetchone()
+        return {"email": email_key, "username": row[0], "hasPhoto": bool(row[1])} if row else {}
+    except (OSError, sqlite3.Error):
+        return {}
+
+
+def _public_profile_for_username(username):
+    try:
+        with _profile_database() as connection:
+            row = connection.execute(
+                "SELECT username, photo IS NOT NULL FROM user_profiles WHERE username = ? COLLATE NOCASE",
+                (username,),
+            ).fetchone()
+        return {"username": row[0], "hasPhoto": bool(row[1])} if row else {}
+    except (OSError, sqlite3.Error):
+        return {}
+
+
 @app.after_request
 def set_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Cache-Control", "no-store")
     return response
+
+
+@app.errorhandler(413)
+def request_too_large(_error):
+    if request.path == "/api/source-schema":
+        return jsonify(error="This selection is larger than 60 MB. Upload it to Databricks or ADLS first, then choose Databricks and load the schema from its table or storage path."), 413
+    return jsonify(error="This request is too large."), 413
 
 
 @app.get("/")
@@ -317,9 +561,94 @@ def index():
 
 @app.get("/<path:asset>")
 def static_asset(asset):
-    if asset not in {"app.js", "schema.js", "styles.css", "favicon.svg"}:
+    if asset in {"app.js", "schema.js", "styles.css", "favicon.svg"}:
+        return send_from_directory(APP_ROOT, asset)
+    if "/" not in asset and _USERNAME_PATTERN.fullmatch(asset) and _public_profile_for_username(asset):
+        return send_from_directory(APP_ROOT, "public_profile.html")
+    abort(404)
+
+
+@app.get("/api/oauth/start")
+def oauth_start():
+    if os.environ.get("DATABRICKS_APP_NAME"):
         abort(404)
-    return send_from_directory(APP_ROOT, asset)
+    client_id, client_secret = _oauth_settings()
+    if not client_id or not client_secret:
+        return jsonify(error="Databricks OAuth is not configured on this LakeLoom deployment."), 503
+    try:
+        host = _clean_oauth_workspace_url(request.args.get("workspace"))
+        redirect_uri = _oauth_redirect_uri()
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    flask_session["oauth_pending"] = {"state": state, "verifier": verifier, "host": host, "created": int(time.time())}
+    parameters = urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "scope": "all-apis offline_access openid email profile",
+    })
+    return redirect(f"{host}/oidc/v1/authorize?{parameters}")
+
+
+@app.get("/api/oauth/callback")
+def oauth_callback():
+    pending = flask_session.pop("oauth_pending", None)
+    if not isinstance(pending, dict) or not secrets.compare_digest(str(pending.get("state", "")), request.args.get("state", "")):
+        return redirect("/?oauth_error=invalid_state")
+    if int(time.time()) - int(pending.get("created", 0)) > 600:
+        return redirect("/?oauth_error=expired")
+    code = request.args.get("code", "")
+    if not code or request.args.get("error"):
+        return redirect("/?oauth_error=denied")
+    client_id, client_secret = _oauth_settings()
+    try:
+        host = _clean_oauth_workspace_url(pending.get("host"))
+        redirect_uri = _oauth_redirect_uri()
+        token_data = _oauth_post(f"{host}/oidc/v1/token", {
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "code_verifier": pending.get("verifier", ""),
+            "code": code,
+            "scope": "all-apis offline_access openid email profile",
+        }, client_id, client_secret)
+        access_token = str(token_data.get("access_token") or "")
+        if not access_token:
+            raise ValueError("Databricks did not return an access token.")
+        identity = _oauth_identity(host, access_token)
+        from databricks.connect import DatabricksSession
+        spark_session = DatabricksSession.Builder().host(host).token(access_token).serverless().getOrCreate()
+        session_id = secrets.token_urlsafe(32)
+        with _oauth_lock:
+            _oauth_sessions[session_id] = {
+                "accessToken": access_token,
+                "refreshToken": str(token_data.get("refresh_token") or ""),
+                "expiresAt": int(time.time()) + int(token_data.get("expires_in") or 3600),
+                "host": host,
+                "spark": spark_session,
+                **identity,
+            }
+        flask_session["oauth_session_id"] = session_id
+        return redirect("/#overview")
+    except (ValueError, HTTPError, URLError, OSError, json.JSONDecodeError):
+        return redirect("/?oauth_error=exchange_failed")
+
+
+@app.post("/api/oauth/logout")
+def oauth_logout():
+    if request.headers.get("X-LakeLoom-Request") != "1":
+        abort(403)
+    session_id = flask_session.pop("oauth_session_id", "")
+    if session_id:
+        with _oauth_lock:
+            _oauth_sessions.pop(session_id, None)
+    return jsonify(disconnected=True)
 
 
 @app.get("/api/session")
@@ -335,12 +664,20 @@ def session_status():
         headers.get("x-forwarded-display-name", "").strip()
         or headers.get("x-forwarded-name", "").strip()
     )[:256]
-    authenticated = running_in_databricks_apps and bool(user_id or preferred_username or email)
+    oauth_session = _current_oauth_session()
+    oauth_authenticated = bool(oauth_session and oauth_session.get("accessToken"))
+    authenticated = (running_in_databricks_apps and bool(user_id or preferred_username or email)) or oauth_authenticated
+    if oauth_authenticated:
+        user_id = oauth_session.get("userId", "")
+        email = oauth_session.get("email", "")
+        forwarded_display_name = oauth_session.get("displayName", "")
     local_connect_ready = not running_in_databricks_apps and _has_databricks_connect_config()
     local_connected = not running_in_databricks_apps and bool(_databricks_connection.get("connected"))
+    identity_email = email if authenticated else _databricks_connection.get("email", "")
+    saved_profile = _profile_for_email(identity_email)
 
     workspace_url = ""
-    configured_host = _databricks_connection.get("host") or os.environ.get("DATABRICKS_HOST", "").strip()
+    configured_host = oauth_session.get("host") or _databricks_connection.get("host") or os.environ.get("DATABRICKS_HOST", "").strip()
     if not configured_host and _databricks_config is not None:
         configured_host = _databricks_config.host or ""
     parsed_host = urlsplit(configured_host)
@@ -349,16 +686,226 @@ def session_status():
 
     return jsonify(
         authenticated=authenticated or local_connected,
+        oauthAvailable=bool(all(_oauth_settings())),
+        oauthCallbackUrl=_oauth_redirect_uri(),
+        oauthConnected=oauth_authenticated,
         databricksApp=running_in_databricks_apps,
-        previewAvailable=running_in_databricks_apps or local_connect_ready,
+        previewAvailable=running_in_databricks_apps or oauth_authenticated or local_connect_ready,
         localConnectReady=local_connect_ready,
         localConnected=local_connected,
-        connectionMethod=_databricks_connection.get("method", ""),
+        connectionMethod="oauth" if oauth_authenticated else _databricks_connection.get("method", ""),
+        username=saved_profile.get("username", ""),
+        hasProfilePhoto=saved_profile.get("hasPhoto", False),
         displayName=(forwarded_display_name or preferred_username or email or user_id) if authenticated else _databricks_connection.get("displayName", ""),
         email=email if authenticated else _databricks_connection.get("email", ""),
         userId=user_id if authenticated else "",
         workspaceUrl=workspace_url,
     )
+
+
+@app.put("/api/profile")
+def update_profile():
+    if request.headers.get("X-LakeLoom-Request") != "1":
+        abort(403)
+    email = str(_request_identity_email()).strip().casefold()
+    if not email or "@" not in email:
+        return jsonify(error="A verified Databricks email is required to save a username."), 401
+
+    payload = request.get_json(silent=True) or {}
+    username = str(payload.get("username", "")).strip()
+    if not _USERNAME_PATTERN.fullmatch(username):
+        return jsonify(error="Use 3–30 characters. Start with a letter and use letters, numbers, dots, hyphens, or underscores."), 400
+
+    try:
+        with _profile_database() as connection:
+            connection.execute(
+                "INSERT INTO user_profiles (email, username) VALUES (?, ?) "
+                "ON CONFLICT(email) DO UPDATE SET username = excluded.username",
+                (email, username),
+            )
+    except sqlite3.IntegrityError:
+        return jsonify(error="This username is already in use. Choose another one."), 409
+    except (OSError, sqlite3.Error):
+        return jsonify(error="The profile store is unavailable. Configure a writable LAKELOOM_PROFILE_STORE path."), 503
+    return jsonify(saved=True, username=username)
+
+
+def _verified_profile_email():
+    email = _request_identity_email()
+    email = str(email or "").strip().casefold()
+    return email if "@" in email else ""
+
+
+def _profile_photo_type(data):
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
+
+
+@app.get("/api/profile/photo")
+def profile_photo():
+    email = _verified_profile_email()
+    if not email:
+        abort(401)
+    try:
+        with _profile_database() as connection:
+            row = connection.execute(
+                "SELECT photo, photo_mime FROM user_profiles WHERE email = ?", (email,)
+            ).fetchone()
+    except (OSError, sqlite3.Error):
+        abort(503)
+    if not row or not row[0]:
+        abort(404)
+    return send_file(io.BytesIO(row[0]), mimetype=row[1] or "image/jpeg", max_age=0)
+
+
+@app.post("/api/profile/photo")
+def upload_profile_photo():
+    if request.headers.get("X-LakeLoom-Request") != "1":
+        abort(403)
+    email = _verified_profile_email()
+    if not email:
+        return jsonify(error="A verified Databricks email is required."), 401
+    upload = request.files.get("photo")
+    data = upload.read(2 * 1024 * 1024 + 1) if upload else b""
+    if not data:
+        return jsonify(error="Choose a profile photo."), 400
+    if len(data) > 2 * 1024 * 1024:
+        return jsonify(error="Profile photos must be 2 MB or smaller."), 413
+    mime_type = _profile_photo_type(data)
+    if not mime_type:
+        return jsonify(error="Use a PNG, JPEG, GIF, or WebP image."), 400
+    try:
+        with _profile_database() as connection:
+            cursor = connection.execute(
+                "UPDATE user_profiles SET photo = ?, photo_mime = ? WHERE email = ?",
+                (data, mime_type, email),
+            )
+            if cursor.rowcount == 0:
+                return jsonify(error="Save a unique username before uploading a profile photo."), 409
+    except (OSError, sqlite3.Error):
+        return jsonify(error="The profile store is unavailable."), 503
+    return jsonify(saved=True)
+
+
+@app.delete("/api/profile/photo")
+def remove_profile_photo():
+    if request.headers.get("X-LakeLoom-Request") != "1":
+        abort(403)
+    email = _verified_profile_email()
+    if not email:
+        return jsonify(error="A verified Databricks email is required."), 401
+    try:
+        with _profile_database() as connection:
+            connection.execute(
+                "UPDATE user_profiles SET photo = NULL, photo_mime = NULL WHERE email = ?", (email,)
+            )
+    except (OSError, sqlite3.Error):
+        return jsonify(error="The profile store is unavailable."), 503
+    return jsonify(removed=True)
+
+
+@app.get("/api/recipes")
+def account_recipes():
+    email = _verified_profile_email()
+    if not email:
+        return jsonify(error="A verified Databricks account is required."), 401
+    try:
+        with _profile_database() as connection:
+            rows = connection.execute(
+                "SELECT recipe_json FROM user_recipes WHERE email = ? "
+                "ORDER BY created_at DESC, updated_at DESC", (email,)
+            ).fetchall()
+        recipes = [json.loads(row[0]) for row in rows]
+    except (OSError, sqlite3.Error, json.JSONDecodeError):
+        return jsonify(error="Saved recipes are temporarily unavailable."), 503
+    return jsonify(recipes=recipes if isinstance(recipes, list) else [])
+
+
+@app.put("/api/recipes")
+def update_account_recipes():
+    if request.headers.get("X-LakeLoom-Request") != "1":
+        abort(403)
+    email = _verified_profile_email()
+    if not email:
+        return jsonify(error="A verified Databricks account is required."), 401
+    payload = request.get_json(silent=True) or {}
+    recipes = payload.get("recipes")
+    if not isinstance(recipes, list) or len(recipes) > 100 or any(not isinstance(item, dict) for item in recipes):
+        return jsonify(error="Save at most 100 valid recipes."), 400
+    encoded = json.dumps(recipes, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > 2 * 1024 * 1024:
+        return jsonify(error="Saved recipes exceed the 2 MB account limit."), 413
+    now = int(time.time())
+    recipe_rows = []
+    recipe_names = set()
+    for index, recipe in enumerate(recipes):
+        recipe_id = str(recipe.get("id") or f"recipe-{now}-{index}").strip()[:200]
+        name = str(recipe.get("name") or "Untitled recipe").strip()[:200] or "Untitled recipe"
+        name_key = name.casefold()
+        if name_key in recipe_names:
+            return jsonify(error=f'A recipe named "{name}" already exists in this account.'), 409
+        recipe_names.add(name_key)
+        stored_recipe = {**recipe, "id": recipe_id, "name": name}
+        recipe_rows.append((
+            email,
+            recipe_id,
+            name,
+            json.dumps(stored_recipe, ensure_ascii=False, separators=(",", ":")),
+            str(stored_recipe.get("createdAt") or ""),
+            now,
+        ))
+    try:
+        with _profile_database() as connection:
+            connection.execute("DELETE FROM user_recipes WHERE email = ?", (email,))
+            connection.executemany(
+                "INSERT INTO user_recipes "
+                "(email, recipe_id, name, recipe_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                recipe_rows,
+            )
+    except sqlite3.IntegrityError:
+        return jsonify(error="Each recipe name must be unique within the account."), 409
+    except (OSError, sqlite3.Error):
+        return jsonify(error="Saved recipes are temporarily unavailable."), 503
+    return jsonify(saved=True, count=len(recipes))
+
+
+@app.get("/api/public/profiles/<username>")
+def public_profile(username):
+    if not _USERNAME_PATTERN.fullmatch(username):
+        abort(404)
+    profile = _public_profile_for_username(username)
+    if not profile:
+        abort(404)
+    canonical_username = profile["username"]
+    return jsonify(
+        username=canonical_username,
+        profileUrl=f"{request.url_root.rstrip('/')}/{canonical_username}",
+        photoUrl=f"{request.url_root.rstrip('/')}/api/public/profiles/{canonical_username}/photo" if profile["hasPhoto"] else "",
+    )
+
+
+@app.get("/api/public/profiles/<username>/photo")
+def public_profile_photo(username):
+    if not _USERNAME_PATTERN.fullmatch(username):
+        abort(404)
+    try:
+        with _profile_database() as connection:
+            row = connection.execute(
+                "SELECT photo, photo_mime FROM user_profiles WHERE username = ? COLLATE NOCASE",
+                (username,),
+            ).fetchone()
+    except (OSError, sqlite3.Error):
+        abort(503)
+    if not row or not row[0]:
+        abort(404)
+    return send_file(io.BytesIO(row[0]), mimetype=row[1] or "image/jpeg", max_age=300)
 
 
 @app.get("/api/databricks/profiles")
@@ -666,14 +1213,17 @@ def write_output():
         app.logger.exception("Databricks output write failed")
         return jsonify(error=f"Databricks could not write this output: {str(error)[:500]}"), 422
 if __name__ == "__main__":
-    # Convenience for local UI work only. Authentication is available when deployed
-    # behind the Databricks Apps proxy, not when using Flask's local server.
-    port = int(os.environ.get("LAKELOOM_PORT", os.environ.get("DATABRICKS_APP_PORT", "8000")))
+    public_url = os.environ.get("LAKELOOM_PUBLIC_URL", "").strip()
+    oauth_port_required = bool(public_url and all(_oauth_settings()))
+    public_port = urlsplit(public_url).port if public_url else None
+    port = int(os.environ.get("LAKELOOM_PORT", os.environ.get("DATABRICKS_APP_PORT", (public_port or 8000) if oauth_port_required else "8000")))
     from werkzeug.serving import make_server
 
     try:
         server = make_server("127.0.0.1", port, app, threaded=True)
     except (OSError, SystemExit):
+        if oauth_port_required:
+            raise RuntimeError(f"OAuth callback port {port} is unavailable.")
         server = make_server("127.0.0.1", 0, app, threaded=True)
     print(f"LakeLoom is running at http://127.0.0.1:{server.server_port}")
     server.serve_forever()

@@ -202,6 +202,37 @@ function expressionColumnReferences(expression) {
   return [...new Set(references)];
 }
 
+function schemaColumnPaths(columns, prefix = '') {
+  return columns.flatMap(column => {
+    const path = prefix ? `${prefix}.${column.name}` : column.name;
+    return [path, ...schemaColumnPaths(column.children || [], path)];
+  });
+}
+
+function columnNameDistance(left, right) {
+  const a = String(left).toLowerCase();
+  const b = String(right).toLowerCase();
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const previous = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diagonal = previous;
+    }
+  }
+  return row[b.length];
+}
+
+function closestColumnNames(unknown, availableNames, limit = 4) {
+  return [...new Set(availableNames)]
+    .map(name => ({ name, distance: columnNameDistance(unknown, name) }))
+    .sort((left, right) => left.distance - right.distance || left.name.localeCompare(right.name))
+    .slice(0, limit)
+    .map(candidate => candidate.name);
+}
+
 function refreshColumnValidation() {
   sourceSchemaState.issueCount = 0;
   sourceSchemaState.issues = [];
@@ -284,9 +315,11 @@ function refreshColumnValidation() {
     if (!field || field.closest('.setting-field').hidden) return;
     const unknown = [...new Set(references)].filter(name => name && name !== '*' && !lookup(name) && !uncertain);
     if (!unknown.length) return;
+    const availableNames = schemaColumnPaths([...available.values()]);
     const existing = issues.find(issue => issue.id === item.id && issue.key === key);
     const combined = [...new Set([...(existing?.unknown || []), ...unknown])];
-    const message = `Unknown column${combined.length > 1 ? 's' : ''}: ${combined.join(', ')}. Use a column available before this step.`;
+    const suggestions = [...new Set(combined.flatMap(name => closestColumnNames(name, availableNames, 2)))].slice(0, 6);
+    const message = `Unknown column${combined.length > 1 ? 's' : ''}: ${combined.join(', ')}. Replace or remove ${combined.length > 1 ? 'these names' : 'this name'} using a column available before this step${suggestions.length ? `, such as ${suggestions.join(', ')}` : ''}.`;
     field.setAttribute('aria-invalid', 'true');
     const warning = document.getElementById(`${item.id}-${key}-column-warning`) || document.createElement('div');
     warning.className = 'column-field-warning';
@@ -294,8 +327,13 @@ function refreshColumnValidation() {
     warning.textContent = message;
     field.setAttribute('aria-describedby', warning.id);
     field.closest('.setting-field').appendChild(warning);
-    if (existing) existing.unknown = combined;
-    else issues.push({ id: item.id, key, title: item.title, unknown: combined });
+    if (existing) {
+      existing.unknown = combined;
+      existing.suggestions = suggestions;
+    } else {
+      const definition = item.fields.find(candidate => candidate.key === key);
+      issues.push({ id: item.id, key, title: item.title, fieldLabel: definition?.label || key, unknown: combined, suggestions });
+    }
   };
   for (const id of state.selected) {
     const item = transformations.find(operation => operation.id === id);
@@ -464,7 +502,7 @@ function refreshColumnValidation() {
   sourceSchemaState.issues = issues;
   if (issues.length) {
     summary.hidden = false;
-    summary.innerHTML = `<strong>${issues.length} column field${issues.length > 1 ? 's' : ''} need attention</strong><p>${issues.slice(0, 5).map(issue => `${escapeHtml(issue.title)}: ${issue.unknown.map(escapeHtml).join(', ')}`).join('<br>')}${issues.length > 5 ? '<br>See highlighted fields for the remaining issues.' : ''}</p>`;
+    summary.innerHTML = `<div class="column-validation-heading"><div><strong>${issues.length} column field${issues.length > 1 ? 's' : ''} need attention</strong><p>Steps run from top to bottom in selection order. A step can only use columns that still exist after the preceding steps.</p></div></div><ol class="column-validation-list">${issues.map((issue, index) => `<li><div><b>${index + 1}. ${escapeHtml(issue.title)}</b><span>Setting: ${escapeHtml(issue.fieldLabel)}</span></div><p><strong>Not found:</strong> ${issue.unknown.map(name => `<code>${escapeHtml(name)}</code>`).join(' ')}</p><p><strong>How to fix:</strong> Replace or remove ${issue.unknown.length > 1 ? 'these column names' : 'this column name'}. Check whether an earlier step renamed, removed, or flattened the column.${issue.suggestions.length ? ` Available suggestions: ${issue.suggestions.map(name => `<code>${escapeHtml(name)}</code>`).join(' ')}` : ' No columns are currently available before this step; review the preceding transformation.'}</p><button type="button" data-fix-column-issue="${escapeHtml(issue.id)}" data-fix-column-key="${escapeHtml(issue.key)}">Fix this field →</button></li>`).join('')}</ol>`;
   }
   const note = document.getElementById('sourceSchemaNote');
   note.dataset.partial = uncertain ? 'true' : 'false';
@@ -482,6 +520,21 @@ function validNewFrameName(name, current) {
 }
 
 function initSourceSchema() {
+  document.getElementById('columnValidationSummary').addEventListener('click', event => {
+    const button = event.target.closest('[data-fix-column-issue]');
+    if (!button) return;
+    const item = transformations.find(operation => operation.id === button.dataset.fixColumnIssue);
+    const field = document.querySelector(`[data-op="${button.dataset.fixColumnIssue}"][data-key="${button.dataset.fixColumnKey}"]`);
+    if (!item || !field) return;
+    state.category = item.category;
+    document.getElementById('operationSearch').value = '';
+    renderCategories();
+    applyCategory();
+    field.closest('.transform-card')?.classList.add('validation-target');
+    field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => field.focus({ preventScroll: true }), 350);
+    window.setTimeout(() => field.closest('.transform-card')?.classList.remove('validation-target'), 3000);
+  });
   document.getElementById('toggleSourceSchema').addEventListener('click', event => {
     const button = event.currentTarget;
     const expanded = button.getAttribute('aria-expanded') === 'true';

@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=84" />
+    <link rel="stylesheet" href="styles.css?v=87" />
   </head>
   <body>
     <main class="signin-gate" id="signinGate" aria-labelledby="signinTitle">
@@ -283,6 +283,16 @@
                 <tr><td>DataFrame tools</td><td>Preserve intermediate pipelines.</td><td>Continue from the current result or original source. DataFrame assignments are lazy and do not copy data.</td></tr>
                 <tr><td>Delta &amp; SCD</td><td>Maintain Delta tables and history.</td><td>SCD Type 1 and 2, inspect, compare, delete, restore, and vacuum. Verify targets and permissions first.</td></tr>
               </tbody></table></div>
+              <div class="transformation-docs" id="transformationDocs">
+                <div class="transformation-docs-heading"><div><h3>All transformations</h3><p>Search every available operation, filter by category, and expand a card to review its settings and choices.</p></div><span id="transformationDocsCount"></span></div>
+                <div class="transformation-docs-toolbar">
+                  <label class="transformation-docs-search"><span>⌕</span><input id="transformationDocsSearch" type="search" placeholder="Search transformations, settings, or options…" aria-label="Search transformation documentation" /></label>
+                  <button class="secondary-action" id="expandTransformationDocs" type="button">Expand visible</button>
+                </div>
+                <div class="transformation-docs-categories" id="transformationDocsCategories" role="group" aria-label="Transformation documentation categories"></div>
+                <div class="transformation-docs-grid" id="transformationDocsGrid"></div>
+                <p class="transformation-docs-empty" id="transformationDocsEmpty" hidden>No transformations match this search.</p>
+              </div>
             </section>
 
             <section class="docs-section">
@@ -495,7 +505,7 @@
         <div class="dialog-actions"><button class="secondary-action" type="button" data-close-modal>Cancel</button><button class="primary-action" id="confirmWriteOutput" type="submit">Write data</button></div>
       </form>
     </div>
-    <script src="schema.js?v=42"></script>
-    <script src="app.js?v=77"></script>
+    <script src="schema.js?v=43"></script>
+    <script src="app.js?v=81"></script>
   </body>
 </html>

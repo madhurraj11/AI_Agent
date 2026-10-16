@@ -368,7 +368,8 @@ const sourcePathExamples = {
 };
 let activeSuggestedFormat = 'delta';
 
-const state = { selected: new Set(), category: 'all', uploads: [], sourceMode: 'files', activeSourceMode: 'files', uploadSelectionKind: 'files', uploadedPathBase: null, uploadedPathFileName: null, view: 'builder', customCode: null, unsyncedCodeEdits: false, editingCode: false, previewRunning: false, lastRunCode: null, session: { authenticated: false, databricksApp: false, displayName: '', email: '', workspaceUrl: '' } };
+const state = { selected: new Set(), category: 'all', uploads: [], sourceMode: 'files', activeSourceMode: 'files', uploadSelectionKind: 'files', uploadedPathBase: null, uploadedPathFileName: null, view: 'builder', customCode: null, unsyncedCodeEdits: false, editingCode: false, previewRunning: false, lastRunCode: null, sessionResolved: false, session: { authenticated: false, databricksApp: false, displayName: '', email: '', workspaceUrl: '' } };
+const appViewStorageKey = 'lakeloom-current-view';
 const list = document.getElementById('transformList');
 const codePreview = document.getElementById('codePreview');
 const toast = document.getElementById('toast');
@@ -600,6 +601,10 @@ function setView(view) {
     setPreviewFocusMode(false);
   }
   state.view = target;
+  try { localStorage.setItem(appViewStorageKey, target); } catch (_) {}
+  if (location.hash !== `#${target}`) {
+    history.replaceState(history.state, '', `${window.location.pathname}${window.location.search}#${target}`);
+  }
   document.querySelectorAll('.app-view').forEach(section => {
     section.hidden = section.id !== `${target}View`;
   });
@@ -609,6 +614,7 @@ function setView(view) {
     link.setAttribute('aria-current', selected ? 'page' : 'false');
   });
   document.getElementById('breadcrumbCurrent').textContent = titles[target];
+  if (target === 'documentation') renderTransformationDocs();
   renderWorkspaceViews();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -631,6 +637,7 @@ function initialsFor(name) {
 
 function renderDatabricksSession(session = {}) {
   const wasAuthenticated = state.session?.authenticated === true;
+  const sessionWasResolved = state.sessionResolved === true;
   const authenticated = session.authenticated === true;
   const databricksApp = session.databricksApp === true;
   const oauthConnected = session.oauthConnected === true;
@@ -638,6 +645,7 @@ function renderDatabricksSession(session = {}) {
   const previewAvailable = session.previewAvailable === true;
   const name = authenticated ? (session.username || identityDisplayName(session.displayName, session.email, session.userId)) : 'Guest user';
   state.session = { ...session, authenticated, databricksApp, previewAvailable };
+  state.sessionResolved = true;
 
   const authButton = document.getElementById('authButton');
   const headerAvatarImage = document.getElementById('headerAvatarImage');
@@ -811,7 +819,7 @@ function renderDatabricksSession(session = {}) {
         ? 'Databricks Connect profile configured'
         : 'No active Databricks session';
   if (endSession) endSession.hidden = !localConnected;
-  if (authenticated && !wasAuthenticated) {
+  if (authenticated && !wasAuthenticated && sessionWasResolved) {
     if (location.hash === '#overview') setView('overview');
     else location.hash = 'overview';
   }
@@ -1020,6 +1028,106 @@ function updateCategoryCount() {
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
+function transformationCategoryLabel(category) {
+  return categories.find(([id]) => id === category)?.[1] || category;
+}
+
+function transformationFieldCondition(field) {
+  if (field.when) return `Shown when ${field.when.key} is “${field.when.value}”.`;
+  if (field.whenAny) return `Shown when ${field.whenAny.key} is ${field.whenAny.values.map(value => `“${value}”`).join(' or ')}.`;
+  return '';
+}
+
+function transformationFieldDocs(item, field) {
+  const optionHelp = dropdownOptionHelp(item.id, field.key);
+  const options = Array.isArray(field.options) ? field.options.map(([value, label]) => {
+    const guidance = optionHelp[value] || '';
+    return `<li><strong>${escapeHtml(label)}</strong><code>${escapeHtml(value)}</code>${guidance ? `<span>${escapeHtml(guidance)}</span>` : ''}</li>`;
+  }).join('') : '';
+  const defaultValue = field.value === undefined || field.value === null ? '' : String(field.value);
+  const condition = transformationFieldCondition(field);
+  return `<section class="transformation-doc-field"><div><strong>${escapeHtml(field.label)}</strong><span>${escapeHtml(field.type === 'select' ? 'Choice' : field.type === 'textarea' ? 'Multiple lines' : 'Text value')}</span></div>${field.hint ? `<p>${escapeHtml(field.hint)}</p>` : ''}${condition ? `<p>${escapeHtml(condition)}</p>` : ''}${defaultValue ? `<p class="transformation-doc-default"><b>Example:</b> <code>${escapeHtml(defaultValue)}</code></p>` : ''}${options ? `<ul>${options}</ul>` : ''}</section>`;
+}
+
+function transformationDocsCard(item) {
+  const fields = Array.isArray(item.fields) ? item.fields : [];
+  const settings = fields.length
+    ? fields.map(field => transformationFieldDocs(item, field)).join('')
+    : '<p class="transformation-doc-no-settings">No configuration is required. Select the transformation to add it to the pipeline.</p>';
+  return `<details class="transformation-doc-card" data-transformation-doc="${escapeHtml(item.id)}"><summary><span class="transformation-doc-icon">${escapeHtml(item.icon || '⌘')}</span><span class="transformation-doc-title"><small>${escapeHtml(transformationCategoryLabel(item.category))}</small><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.description)}</span></span><span class="transformation-doc-chevron">⌄</span></summary><div class="transformation-doc-body"><h4>Settings</h4>${settings}<button type="button" class="secondary-action transformation-doc-builder" data-open-transformation="${escapeHtml(item.id)}">Find in notebook builder ↗</button></div></details>`;
+}
+
+function renderTransformationDocs() {
+  const grid = document.getElementById('transformationDocsGrid');
+  if (!grid) return;
+  const search = document.getElementById('transformationDocsSearch').value.trim().toLocaleLowerCase();
+  const categoryContainer = document.getElementById('transformationDocsCategories');
+  const activeCategory = categoryContainer.dataset.category || 'all';
+  const openIds = new Set([...grid.querySelectorAll('details[open]')].map(card => card.dataset.transformationDoc));
+  const visible = transformations.filter(item => {
+    if (activeCategory !== 'all' && item.category !== activeCategory) return false;
+    const searchText = [item.title, item.description, transformationCategoryLabel(item.category), ...(item.fields || []).flatMap(field => [field.label, field.hint || '', field.value || '', ...(field.options || []).flat()])].join(' ').toLocaleLowerCase();
+    return !search || searchText.includes(search);
+  });
+  grid.innerHTML = visible.map(transformationDocsCard).join('');
+  grid.querySelectorAll('details').forEach(card => { card.open = openIds.has(card.dataset.transformationDoc); });
+  document.getElementById('transformationDocsCount').textContent = `${visible.length} of ${transformations.length}`;
+  document.getElementById('transformationDocsEmpty').hidden = visible.length !== 0;
+  document.getElementById('expandTransformationDocs').textContent = visible.length && visible.every(item => openIds.has(item.id)) ? 'Collapse visible' : 'Expand visible';
+}
+
+function initializeTransformationDocs() {
+  const categoryContainer = document.getElementById('transformationDocsCategories');
+  if (!categoryContainer) return;
+  categoryContainer.dataset.category = 'all';
+  categoryContainer.innerHTML = categories.map(([id, label]) => `<button type="button" class="${id === 'all' ? 'active' : ''}" data-doc-category="${escapeHtml(id)}" aria-pressed="${id === 'all'}">${escapeHtml(label)}</button>`).join('');
+  document.getElementById('transformationDocsSearch').addEventListener('input', renderTransformationDocs);
+  categoryContainer.addEventListener('click', event => {
+    const button = event.target.closest('[data-doc-category]');
+    if (!button) return;
+    categoryContainer.dataset.category = button.dataset.docCategory;
+    categoryContainer.querySelectorAll('button').forEach(item => {
+      const active = item === button;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-pressed', String(active));
+    });
+    renderTransformationDocs();
+  });
+  document.getElementById('expandTransformationDocs').addEventListener('click', event => {
+    const cards = [...document.querySelectorAll('#transformationDocsGrid .transformation-doc-card')];
+    const expand = cards.some(card => !card.open);
+    cards.forEach(card => { card.open = expand; });
+    event.currentTarget.textContent = expand ? 'Collapse visible' : 'Expand visible';
+  });
+  document.getElementById('transformationDocsGrid').addEventListener('click', event => {
+    const button = event.target.closest('[data-open-transformation]');
+    if (!button) return;
+    const item = transformations.find(candidate => candidate.id === button.dataset.openTransformation);
+    if (!item) return;
+    state.category = item.category;
+    document.getElementById('operationSearch').value = item.title;
+    renderCategories();
+    applyCategory();
+    setView('builder');
+    window.setTimeout(() => {
+      const card = document.querySelector(`[data-card="${CSS.escape(item.id)}"]`);
+      if (!card) return;
+      document.querySelectorAll('.transform-card.docs-target-focus').forEach(candidate => candidate.classList.remove('docs-target-focus'));
+      card.classList.add('docs-target-focus');
+      card.setAttribute('tabindex', '-1');
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.focus({ preventScroll: true });
+      showToast(`${item.title} is highlighted in the notebook builder.`);
+      window.clearTimeout(card.docsTargetTimer);
+      card.docsTargetTimer = window.setTimeout(() => {
+        card.classList.remove('docs-target-focus');
+        card.removeAttribute('tabindex');
+      }, 3200);
+    }, 180);
+  });
+  renderTransformationDocs();
 }
 
 function getValue(op, key) {
@@ -2329,12 +2437,10 @@ function makeValidatedCode() {
     `# Notebook: ${getNotebookName().replace(/[\r\n\t]+/g, ' ')}`,
     'from pyspark.sql import functions as F'
   ];
-  // Keep DataFrame transformations in selection order. Delta table actions run last.
-  const selectedInOrder = [...state.selected]
+  // Preserve the exact order in which the user selected every transformation.
+  const selected = [...state.selected]
     .map(id => transformations.find(item => item.id === id))
     .filter(Boolean);
-  const isActionStep = item => item.id.startsWith('delta');
-  const selected = [...selectedInOrder.filter(item => !isActionStep(item)), ...selectedInOrder.filter(isActionStep)];
   const sparkTypeImports = new Set();
   if (selected.some(item => item.id === 'trimAll')) sparkTypeImports.add('StringType');
   if (selected.some(item => item.id === 'createFrameFromSchema')) {
@@ -2634,7 +2740,7 @@ function renderPipelineTools() {
   if (!visual) return;
   const selected = [...state.selected].map(id => transformations.find(item => item.id === id)).filter(Boolean);
   visual.innerHTML = selected.length
-    ? [`<span class="pipeline-node source-node">Source</span>`, ...selected.map((item, index) => `<span class="pipeline-arrow" aria-hidden="true">→</span><span class="pipeline-node" title="Step ${index + 1}: ${escapeHtml(item.description)}">${escapeHtml(item.title)}</span>`), `<span class="pipeline-arrow" aria-hidden="true">→</span><span class="pipeline-node output-node">Preview / output</span>`].join('')
+    ? [`<div class="pipeline-node source-node"><span class="pipeline-order">START</span><span>Source</span></div>`, ...selected.map((item, index) => `<div class="pipeline-arrow" aria-hidden="true">↓</div><div class="pipeline-node transformation-node" title="Step ${index + 1}: ${escapeHtml(item.description)}"><span class="pipeline-order">${String(index + 1).padStart(2, '0')}</span><span class="pipeline-node-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.description)}</small></span></div>`), `<div class="pipeline-arrow" aria-hidden="true">↓</div><div class="pipeline-node output-node"><span class="pipeline-order">END</span><span>Preview / output</span></div>`].join('')
     : '<span class="pipeline-empty">Select transformations to build the visual pipeline.</span>';
 
   const ids = new Set(selected.map(item => item.id));
@@ -3433,6 +3539,7 @@ document.getElementById('signinRefresh').addEventListener('click', async event =
 });
 renderCategories();
 renderTransformations();
+initializeTransformationDocs();
 transformations.forEach(item => syncCard(item.id));
 updateUploadMode();
 syncOutputSettings();
@@ -3455,7 +3562,11 @@ loadDatabricksSession().then(() => {
   history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
 });
 loadDatabricksProfiles();
-setView(location.hash.replace(/^#/, '') || 'builder');
+let initialView = location.hash.replace(/^#/, '');
+if (!initialView) {
+  try { initialView = localStorage.getItem(appViewStorageKey) || 'builder'; } catch (_) { initialView = 'builder'; }
+}
+setView(initialView);
 
 list.addEventListener('click', event => {
   const head = event.target.closest('[data-toggle]');
